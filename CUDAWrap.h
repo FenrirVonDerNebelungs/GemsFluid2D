@@ -15,7 +15,7 @@ public:
         double delta_t = 1e-3,
         double delta_x = 1e-3,
         double nu = 1.0,
-        int max_jacobi_loops = 3
+        int max_jacobi_loops = 10
     );
     ~CUDAWrap();
 
@@ -39,16 +39,18 @@ protected:
     int runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames);
 
 	void runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force);
-	void runTestFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force);
 
     void advection(double* Ux[], double* Uy[], int frame_index);
     void viscous_diffusion(double* Ux[], double* Uy[], double* scratch, int frame_index);
     void apply_force(double* Ux[], double* Uy[], int frame_index, s_force& force);
-    void compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index);
+    void compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[], int frame_index, int p_frame_index);
 
-	void jacobi_loop(double* U[], double* b, int frame_index, double alpha, double rbeta);
-	void divergence(double* Ux[], double* Uy[], double* div[], int frame_index);
+    void jacobi_frame(double* frame_out, const double* frame_in, const double* b, const double& alpha, const double& rbeta);
+    void jacobi_loop(double* U[], double* b, int frame_index, double alpha, double rbeta);
+	void divergence(double* div, const double* Ux, const double* Uy);
+
+
 };
 
 #endif

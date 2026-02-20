@@ -72,16 +72,12 @@ void CUDAWrap::viscous_diffusion(double* Ux[], double* Uy[], double* scratch, in
     cudaStatus = cudaDeviceSynchronize();
     jacobi_loop(Uy, scratch, frame_index, alpha, rbeta);
 }
-void CUDAWrap::compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index) {
-    dim3 numBlocks(numBlocks_side, numBlocks_side);
-    dim3 numThreads(numThreads_side, numThreads_side);
+void CUDAWrap::compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index) {
+	divergence(scratch, Ux[frame_index], Uy[frame_index]);
     /* jacobi with \alpha = -\deltax^2 and b = \frac{1}{\deltat} \nabla \cdot \vec{u} and \beta = 4 */
     static double alpha = -delta_x * delta_x;
     static double rbeta = 0.25;
-	static double inv_2delta_x = 1.0 / (2.0 * delta_x);
-    divergence << <numBlocks, numThreads >> > (scratch, Ux[frame_index], Uy[frame_index], inv_2delta_x, grid_width, grid_height);
-    cudaError_t cudaStatus = cudaDeviceSynchronize();
-    jacobi_loop(p, scratch, frame_index, alpha, rbeta);
+    jacobi_loop(p, scratch, p_frame_index, alpha, rbeta);
 }
 void CUDAWrap::subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[], int frame_index, int p_frame_index) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
@@ -99,6 +95,13 @@ void CUDAWrap::subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[
         grid_height);
 	cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
+void CUDAWrap::jacobi_frame(double* frame_out, const double* frame_in, const double* b, const double& alpha, const double& rbeta) {
+    cudaError_t cudaStatus = cudaSuccess;
+	dim3 numBlocks(numBlocks_side, numBlocks_side);
+	dim3 numThreads(numThreads_side, numThreads_side);
+    jacobi << <numBlocks, numThreads >> > (frame_out, frame_in, b, alpha, rbeta, grid_width, grid_height);
+    cudaStatus = cudaDeviceSynchronize();
+}
 void CUDAWrap::jacobi_loop(double* U[], double* b, int frame_index, double alpha, double rbeta) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
     dim3 numThreads(numThreads_side, numThreads_side);
@@ -106,17 +109,20 @@ void CUDAWrap::jacobi_loop(double* U[], double* b, int frame_index, double alpha
     int original_frame_index = frame_index;
     s_frame_index frame_i = getFrameIndex(frame_index);
     int num_jacobi_loops = 0;
-
     do {
-        jacobi << <numBlocks, numThreads >> > (U[frame_i.out], U[frame_i.in], b, alpha, rbeta, grid_width, grid_height);
-        cudaStatus = cudaDeviceSynchronize();
-        boundary_rightleft << <numBlocks_side, numThreads_side >> > (U[frame_i.in], -1.0, grid_width, grid_height);
-        boundary_topbottom << <numBlocks_side, numThreads_side >> > (U[frame_i.out], -1.0, grid_width, grid_height);
-        cudaStatus = cudaDeviceSynchronize();
+		jacobi_frame(U[frame_i.out], U[frame_i.in], b, alpha, rbeta);
         swapFrameIndexes(frame_i);
         num_jacobi_loops++;
     } while (num_jacobi_loops <= max_jacobi_loops);
     fixFramePointers(U, frame_i, original_frame_index);/* set Ux so that frame_out_index will point to the Ux results of the jacobi loop*/
+}
+
+void CUDAWrap::divergence(double* div, const double* Ux, const double* Uy) {
+    dim3 numBlocks(numBlocks_side, numBlocks_side);
+    dim3 numThreads(numThreads_side, numThreads_side);
+	static double inv_2delta_x = 1.0 / (2.0 * delta_x);
+    divergence_Core << <numBlocks, numThreads >> > (div, Ux, Uy, inv_2delta_x, grid_width, grid_height);
+    cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
 void CUDAWrap::runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force) {
 	int frame_in_index = frame_index;
@@ -129,7 +135,7 @@ void CUDAWrap::runFrame(double* Ux[], double* Uy[], double* p[], double* scratch
         apply_force(Ux, Uy, frame_in_index, force);
 		reverseFrameIndex(frame_in_index);
 	}
-	compute_pressure(Ux, Uy, p, scratch, frame_in_index);
+	compute_pressure(Ux, Uy, p, scratch, frame_in_index, p_frame_in_index);
 	reverseFrameIndex(p_frame_in_index);
 	subtract_pressure_gradient(Ux, Uy, p, frame_in_index, p_frame_in_index);
     reverseFrameIndex(frame_in_index);

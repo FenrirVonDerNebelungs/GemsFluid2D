@@ -57,14 +57,17 @@ void GenImage::genTestImage()
 	}
 }
 void GenImage::genNormalizedImage(const double* data) {
-	if(data==nullptr)
+	if (data == nullptr)
 		return;
 	double supremum = getDataSupremum(data);
+	genScaledImage(data, supremum);
+}
+void GenImage::genScaledImage(const double* data, double scale) {
 	for (int y = 0; y < m_height; y++) {
 		for (int x = 0; x < m_width; x++) {
 			int index = (y * m_width + x) * 3;
 			double value = data[y * m_width + x];
-			s_rgb color = getColor(value, supremum);
+			s_rgb color = getColor(value, scale);
 			m_pImageData[index] = color.c[0]; // Red, actually Blue
 			m_pImageData[index + 1] = color.c[1]; // Green
 			m_pImageData[index + 2] = color.c[2]; // Blue, actually Red
@@ -75,13 +78,31 @@ double GenImage::getDataSupremum(const double* data) {
 	double supremum = 0.0;
 	int size = m_width * m_height;
 	for (int i = 0; i < size; i++) {
-		if (data[i] > supremum) {
-			supremum = data[i];
+		double abs_data = std::abs(data[i]);
+		if (abs_data > supremum) {
+			supremum = abs_data;
 		}
 	}
 	return supremum;
 }
 s_rgb GenImage::getColor(double value, double supremum) {
+	s_rgb color;
+	double blue_value =  (value < 0.0) ? ( - value / supremum) : 0.0; //(supremum - value) / (2.0 * supremum);
+	double red_value = (value > 0.0) ? (value / supremum) : 0.0; //(supremum + value) / (2.0 * supremum);
+	double green_value = 1.0 - (abs(value) / supremum);
+	if (supremum > 0.0) {
+		color.c[2] = static_cast<unsigned char>(std::round(255.0 * red_value)); // Red
+		color.c[1] = static_cast<unsigned char>(std::round(255.0 * green_value)); // Green
+		color.c[0] = static_cast<unsigned char>(std::round(255.0 * blue_value)); // Blue
+	}
+	else {
+		color.c[0] = 0; // Blue
+		color.c[1] = 0; // Green
+		color.c[2] = 0; // Red
+	}
+	return color;
+}
+s_rgb GenImage::getColorRB(double value, double supremum) {
 	s_rgb color;
 	if (supremum > 0.0) {
 		double normValue = value / supremum;

@@ -4,7 +4,8 @@
 
 #include "GemsFluid2DWin.h"
 #include "GenImage.h"
-#include "Fluid2D.h"
+//#include "Fluid2D.h"
+#include "Test.h"
 
 #define MAX_LOADSTRING 100
 
@@ -13,7 +14,8 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 GenImage* g_pGenImage = nullptr; //class used to draw images
-Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
+//Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
+Test* g_pTest = nullptr; //class used to run the fluid simulation
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -101,12 +103,15 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-	g_pFluid2D = new Fluid2D();
+	/*g_pFluid2D = new Fluid2D();
 	s_WH grid_wh = g_pFluid2D->getGridWidthHeight();
-	g_pFluid2D->launchCUDA();
+	g_pFluid2D->launchCUDA();*/
+	g_pTest = new Test();
+	s_WH grid_wh = g_pTest->getGridWidthHeight();
+    g_pTest->runTest();
    g_pGenImage = new GenImage(grid_wh.width, grid_wh.height);
-   double* Ux = g_pFluid2D->getUx();
-   g_pGenImage->genNormalizedImage(Ux);
+   //double* Ux = g_pTest->getUx();
+   //g_pGenImage->genNormalizedImage(Ux);
    hInst = hInstance; // Store instance handle in our global variable
 
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
@@ -130,11 +135,17 @@ VOID Release()
         delete g_pGenImage;
         g_pGenImage = nullptr;
     }
+    if (g_pTest != nullptr)
+    {
+        delete g_pTest;
+        g_pTest = nullptr;
+    }
+    /*
     if(g_pFluid2D != nullptr)
     {
         delete g_pFluid2D;
         g_pFluid2D = nullptr;
-	}
+	}*/
 }
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -194,6 +205,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
+    case WM_LBUTTONDOWN: {
+        int x_click = LOWORD(lParam);
+        int y_click = HIWORD(lParam);
+		double* Display_data = g_pTest->getFrameToDisplay();
+        if(g_pTest->switchToDisplayingFrames())
+        {
+			MessageBox(hWnd, L"Switching to displaying frames", L"Switch", MB_OK);
+		}
+        else if (g_pTest->switchToDisplayingErrors())
+        {
+			MessageBox(hWnd, L"Switching to displaying errors", L"Switch", MB_OK);
+        }
+        if (g_pTest->preDisplayFrames()) {
+            g_pGenImage->genNormalizedImage(Display_data);
+		}
+		else if (!(g_pTest->displayingErrors())) {
+			double current_max = g_pTest->getCurrentMax();
+			g_pGenImage->genScaledImage(Display_data, current_max);
+        }
+        else if(g_pTest->displayingErrors()){
+			double max_error = g_pTest->getMaxError();
+			g_pGenImage->genScaledImage(Display_data, max_error);
+        }else
+			MessageBox(hWnd, L"Displaying scratch", L"Switch", MB_OK);
+		InvalidateRect(hWnd, nullptr, TRUE);/*invalidates the entire client area and causes a WM_PAINT message to be sent to the window procedure
+                                              NULL means entire client area, true to erase background*/
+        //MessageBox(hWnd, L"Left mouse button clicked", L"Mouse Click", MB_OK);
+        break;
+    }
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }

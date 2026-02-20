@@ -22,6 +22,7 @@ public:
 
 	void genTestImage();
 	void genNormalizedImage(const double* data);
+	void genScaledImage(const double* data, double scale);
 private:
 	BITMAPINFO* m_pbmi;
 	int m_width;;
@@ -30,5 +31,6 @@ private:
 
 	double getDataSupremum(const double* data);
 	s_rgb getColor(double value, double supremum);
+	s_rgb getColorRB(double value, double supremum);
 };
 #endif

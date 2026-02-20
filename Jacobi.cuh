@@ -4,7 +4,7 @@
 */
 __global__ void jacobi(
     double* frame_out,
-    double* frame_in,
+    const double* frame_in,
     const double* b_in,
     const double alpha,
     const double rbeta,
@@ -20,6 +20,23 @@ __global__ void jacobi(
         double xB = frame_in[getIndex(i, j - 1, grid_width)];
         double xT = frame_in[getIndex(i, j + 1, grid_width)];
         double b = b_in[center_index];
+        double xNew = (xL + xR + xB + xT + alpha * b) * rbeta;
+        frame_out[center_index] = xNew;
+    }
+    else {
+        int center_index = getIndex(i, j, grid_width);
+        double xL = 0.0;
+        double xR=0.0;
+        double xB = 0.0;
+        double xT = 0.0;
+        if (i > 0)
+            xL = frame_in[getIndex(i - 1, j, grid_width)];
+        if (i < (grid_width - 1))
+            xR = frame_in[getIndex(i + 1, j, grid_width)];
+        if(j>0)
+            frame_in[getIndex(i, j - 1, grid_width)];
+        if(j<(grid_height-1))
+            xT = frame_in[getIndex(i, j + 1, grid_width)];
         double xNew = (xL + xR + xB + xT + alpha * b) * rbeta;
         frame_out[center_index] = xNew;
     }

@@ -137,7 +137,7 @@ __global__ void applyForce_Core(
         Uy_out[center_index] = Uy_in[center_index];
     }
 }
-__global__ void divergence(
+__global__ void divergence_Core(
     double* frame_out, 
     const double* Wx_in, 
     const double* Wy_in, 
