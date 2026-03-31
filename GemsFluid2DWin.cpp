@@ -109,13 +109,15 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	g_pTest = new Test();
 	s_WH grid_wh = g_pTest->getGridWidthHeight();
     g_pTest->runTest();
-   g_pGenImage = new GenImage(grid_wh.width, grid_wh.height);
+    g_pGenImage = g_pTest->getTestImage();//new GenImage(grid_wh.width, grid_wh.height);
    //double* Ux = g_pTest->getUx();
    //g_pGenImage->genNormalizedImage(Ux);
    hInst = hInstance; // Store instance handle in our global variable
-
+   s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
+   int window_width = blown_grid_wh.width + 6;
+   int window_height = blown_grid_wh.height + 6;
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+      CW_USEDEFAULT, 0, window_width, window_height, nullptr, nullptr, hInstance, nullptr);//CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
    if (!hWnd)
    {
@@ -130,11 +132,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 VOID Release()
 {
-    if (g_pGenImage != nullptr)
-    {
-        delete g_pGenImage;
-        g_pGenImage = nullptr;
-    }
     if (g_pTest != nullptr)
     {
         delete g_pTest;
@@ -208,27 +205,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONDOWN: {
         int x_click = LOWORD(lParam);
         int y_click = HIWORD(lParam);
-		double* Display_data = g_pTest->getFrameToDisplay();
-        if(g_pTest->switchToDisplayingFrames())
-        {
-			MessageBox(hWnd, L"Switching to displaying frames", L"Switch", MB_OK);
-		}
-        else if (g_pTest->switchToDisplayingErrors())
-        {
-			MessageBox(hWnd, L"Switching to displaying errors", L"Switch", MB_OK);
-        }
-        if (g_pTest->preDisplayFrames()) {
-            g_pGenImage->genNormalizedImage(Display_data);
-		}
-		else if (!(g_pTest->displayingErrors())) {
-			double current_max = g_pTest->getCurrentMax();
-			g_pGenImage->genScaledImage(Display_data, current_max);
-        }
-        else if(g_pTest->displayingErrors()){
-			double max_error = g_pTest->getMaxError();
-			g_pGenImage->genScaledImage(Display_data, max_error);
-        }else
-			MessageBox(hWnd, L"Displaying scratch", L"Switch", MB_OK);
+        g_pGenImage = g_pTest->handleMouse();
+        if(g_pTest->getMessage()!=nullptr)
+            MessageBox(hWnd, g_pTest->getMessage(), L"Active", MB_OK);
 		InvalidateRect(hWnd, nullptr, TRUE);/*invalidates the entire client area and causes a WM_PAINT message to be sent to the window procedure
                                               NULL means entire client area, true to erase background*/
         //MessageBox(hWnd, L"Left mouse button clicked", L"Mouse Click", MB_OK);

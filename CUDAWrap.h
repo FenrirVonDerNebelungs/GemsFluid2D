@@ -10,12 +10,12 @@ class Test;
 class CUDAWrap {
 public:
     CUDAWrap(
-        int blocks_side_dim = 8,
+        int blocks_side_dim = 4,//8,
         int threads_side_dim = 16,
-        double delta_t = 1e-3,
-        double delta_x = 1e-3,
-        double nu = 1.0,
-        int max_jacobi_loops = 10
+        double in_delta_t = 1e-3,
+        double in_delta_x = 1e-3,
+        double in_nu = 1.0,
+        int in_max_jacobi_loops = 100
     );
     ~CUDAWrap();
 
@@ -41,15 +41,30 @@ protected:
 	void runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force);
 
     void advection(double* Ux[], double* Uy[], int frame_index);
+    void advection_backtrace(double* relPos_i, double* relPos_j, /*const*/ double* Ux[], /*const*/ double* Uy[], int frame_index);/* test function */
     void viscous_diffusion(double* Ux[], double* Uy[], double* scratch, int frame_index);
     void apply_force(double* Ux[], double* Uy[], int frame_index, s_force& force);
     void compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[], int frame_index, int p_frame_index);
 
-    void jacobi_frame(double* frame_out, const double* frame_in, const double* b, const double& alpha, const double& rbeta);
-    void jacobi_loop(double* U[], double* b, int frame_index, double alpha, double rbeta);
+    void jacobi_frame(
+        double* frame_out, 
+        const double* frame_in, 
+        const double* b, 
+        const double* Wx, 
+        const double* Wy, 
+        const double& alpha, 
+        const double& rbeta);
+    void jacobi_loop(
+        double* X[], 
+        double* b, 
+        int frame_index,
+        double alpha, 
+        double rbeta, 
+        const double* Wx=nullptr, const double* Wy=nullptr);
 	void divergence(double* div, const double* Ux, const double* Uy);
 
+	void bilinearAprox_scaledFrame(double* Ux_scaled, double* Uy_scaled, const double* Ux, const double* Uy, int scale_factor=6);
 
 };
 

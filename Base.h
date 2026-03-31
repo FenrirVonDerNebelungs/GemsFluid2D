@@ -1,8 +1,10 @@
 #pragma once
 #ifndef BASE_H
 #define BASE_H
+
 #include <stdio.h>
 #include <cmath>
+#include <algorithm> /* needed for std::max */
 #include <cstring>
 struct s_WH {
 	int width;
