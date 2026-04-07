@@ -120,16 +120,20 @@ s_rgb GenImage::getColor(double value, double supremum) {
 	double blue_value =  (value < 0.0) ? ( - value / supremum) : 0.0; //(supremum - value) / (2.0 * supremum);
 	double red_value = (value > 0.0) ? (value / supremum) : 0.0; //(supremum + value) / (2.0 * supremum);
 	double green_value = 1.0 - (abs(value) / supremum);
-	if (blue_value > 1.0 || red_value > 1.0 || green_value > 1.0) {
+	if (blue_value > 1.0)
+		blue_value = 1.0;
+	if (red_value > 1.0)
+		red_value = 1.0;
+	if (green_value > 1.0)
+		green_value = 1.0;
+
+	if (blue_value < 0.0)
 		blue_value = 0.0;
+	if (red_value < 0.0)
 		red_value = 0.0;
+	if (green_value < 0.0)
 		green_value = 0.0;
-	}
-	else if (blue_value < 0.0 || red_value < 0.0 || green_value < 0.0) {
-		blue_value = 0.0;
-		red_value = 0.0;
-		green_value = 0.0;
-	}
+
 	if (supremum > 0.0) {
 		color.c[2] = static_cast<unsigned char>(std::round(255.0 * red_value)); // Red
 		color.c[1] = static_cast<unsigned char>(std::round(255.0 * green_value)); // Green

@@ -6,37 +6,75 @@ import numpy as np
 #header defs
 #1st 32 bits
 header1 = {
-    'grid' : 0x01,
-    'img' : 0x02
+     0x01 : 'grid',
+     0x02 : 'img' 
 }
 #2nd 32 bits
 header2 = {
-    'U' : 0x01,
-    'Force' : 0x02,
-    'relPos' : 0x03,
-    'W' : 0x04,
-    'DivW' : 0x05,
-    'P' : 0x06,
-    'gradP' : 0x07,
-    'jacobi_frame' : 0x08,
-    'DivU' : 0x09
+    0x01: 'U',
+    0x02: 'Force',
+    0x03: 'relPos',
+    0x04: 'W',
+    0x05: 'DivW',
+    0x06: 'P',
+    0x07: 'gradP',
+    0x08: 'jacobi_frame',
+    0x09: 'DivU'
 }
 #3rd 32 bits
 header3 = {
-    'X':0x01,
-    'Y':0x02,
-    'Scalar':0x03,
-    'X_exp':0x04,
-    'Y_exp':0x05
+    0x01: 'X',
+    0x02: 'Y',
+    0x03: 'Scalar',
+    0x04: 'X_exp',
+    0x05: 'Y_exp'
     }
 #4th 32 bits
 header4 = {
-    'mid_frame':0x00,
-    'start_frame':0x01,
-    'after_advection':0x02,
-    'after_force':0x03,
-    'end_frame':0x04
+    0x00: 'mid_frame',
+    0x01 : 'start_frame',
+    0x02: 'after_advection',
+    0x03: 'after_force',
+    0x04: 'end_frame'
     }
+
+def getGridWidth(header):
+    width = header[6]
+    return width
+
+def getGridHeight(self, header):
+    height = header[7]
+    return height
+
+def getExpFactor(self, header):
+    exp_factor = header[8]
+    return exp_factor
+
+def getDataLen(self, header): # gets data length in bytes from header, assuming doubles
+    if not header:
+        return 0
+    width = self.getGridWidth(self, header)
+    height = self.getGridHeight(self, header)
+    exp_factor = self.getExpFactor(self, header)
+    d_len = width*height*exp_factor
+    return 8*d_len
+ 
+def getDataLabel(self, header):
+    if not header:
+        return 0
+    return header[1]
+
+def getDataAxis(self,header):
+    return header[2]
+
+def getDataStartEndCode(self, header):
+    return header[3]
+
+def getJacobiFrame(self, header):
+    return header[5]
+
+def getExpansionFactor(self, header):
+    return header[8]
 
 def Cti(ch4):
     I = int.from_bytes(ch4, "little")
@@ -126,32 +164,15 @@ class CTrans:
         header_Is = streamCtoI(self.header_len, stream_in, stream_offset)
         return header_Is
 
-    def getGridWidth(self, header):
-        width = header[6]
-        return width
-
-    def getGridHeight(self, header):
-        height = header[7]
-        return height
-
-    def getExpFactor(self, header):
-        exp_factor = header[8]
-        return exp_factor
-
-    def getDataLen(self, header): # gets data length in bytes from header, assuming doubles
-        if not header:
-            return 0
-        width = self.getGridWidth(self, header)
-        height = self.getGridHeight(self, header)
-        exp_factor = self.getExpFactor(self, header)
-        d_len = width*height*exp_factor
-        return 8*d_len
-
     def readGridStream(self, stream_in, stream_offset):
         header = self.readHeader(stream_in, stream_offset)
-        data_len = self.getDataLen(self,header)
+        data_len = getDataLen(header)
         data = streamCtoD(data_len, stream_in, stream_offset+self.header_len)
         return header, data
+
+    def readDStream(self, stream_in, stream_len, stream_offset):
+        data = streamCtoD(stream_len, stream_in, stream_offset)
+        return data
 
     def readFrameStream(self):
         stream_offset=0
@@ -161,7 +182,7 @@ class CTrans:
             header, data = self.readGridStream(self.frameStream, stream_offset)
             header_stack.append(header)
             data_stack.append(data)
-            data_len = self.getDataLen(header)+self.header_len
+            data_len = getDataLen(header)+self.header_len
             stream_offset=stream_offset+data_len
         return header_stack, data_stack, stream_offset
 
@@ -172,3 +193,9 @@ class CTrans:
         new_file_offset = file_offset+self.frameSize
         return header_stack, data_stack, new_file_offset
 
+    def readDdat(self, len_in, file_offset):
+        if not self.readBinaryFile(file_offset):
+            return [], 0
+        dat = self.readDStream(self.frameStream, len_in, file_offset)
+        new_file_offset=file_offset+len_in
+        return dat, new_file_offset

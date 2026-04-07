@@ -98,6 +98,7 @@ public:
 		int jacobi_frame=0, 
 		int exp_factor=1
 	);
+	bool cacheDStream(const double d_vals[], int len);
 	void resetCache();
 
 	bool resetAndWrite();

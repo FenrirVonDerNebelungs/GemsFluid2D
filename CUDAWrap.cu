@@ -125,13 +125,13 @@ void CUDAWrap::jacobi_frame(
     jacobi << <numBlocks, numThreads >> > (frame_out, frame_in, b, alpha, rbeta, grid_width, grid_height);
     cudaStatus = cudaDeviceSynchronize();
     if (Wx != nullptr)
-        jacobi_boundary_pressure << <numBlocks_side, numThreads_side >> > (frame_out, Wx, Wy, frame_in, b, delta_x, grid_width, grid_height);
+        jacobi_boundary_pressure << <numBlocks_side, numThreads_side >> > (frame_out, Wx, Wy, frame_in, b, alpha, rbeta, delta_x, grid_width, grid_height);
     cudaStatus = cudaDeviceSynchronize();
 }
 void CUDAWrap::jacobi_loop(double* X[], double* b, int frame_index, double alpha, double rbeta, const double* Wx, const double* Wy) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
     dim3 numThreads(numThreads_side, numThreads_side);
-    cudaError_t cudaStatus = cudaSuccess;
+    //cudaError_t cudaStatus = cudaSuccess;
     int original_frame_index = frame_index;
     s_frame_index frame_i = getFrameIndex(frame_index);
     int num_jacobi_loops = 0;

@@ -270,6 +270,14 @@ bool PyTrans::cacheGrid(
 	m_culmative_stream_len += new_cache_len;
 	return retVal;
 }
+bool PyTrans::cacheDStream(const double d_vals[], int len) {
+	if ((len + m_culmative_stream_len) >= m_culmative_stream_len_max)
+		return false;
+	bool ret_val = n_PyTrans::streamDtoC(len, d_vals, m_culmative_stream, m_culmative_stream_len);
+	if (ret_val)
+		m_culmative_stream_len += len;
+	return ret_val;
+}
 void PyTrans::resetCache() {
 	m_culmative_stream_len = 0;
 }

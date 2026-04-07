@@ -8,7 +8,7 @@
 
 class FluidAnimate {
 public:
-	FluidAnimate(int max_frame_duration=10);
+	FluidAnimate(int max_frame_duration=3);
 	~FluidAnimate();
 
 	void init(s_WH& grid_wh);

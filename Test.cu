@@ -97,8 +97,8 @@ void Test::runTestToPressure(double* Ux[], double* Uy[], double* p[], double* sc
     }
     fill_display_frame(m_Ux, Ux[frame_in_index]);
 	fill_display_frame(m_Uy, Uy[frame_in_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::after_force_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_force_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
 	m_pCUDA_wrap->divergence(scratch, Ux[frame_in_index], Uy[frame_in_index]);
 	fill_display_frame(m_scratch, scratch);
     m_pPyTrans->cacheGrid(m_scratch, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::DivW_code);
@@ -330,6 +330,8 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
                 p_frame_index, 
                 force);
             //m_pPyTrans->resetAndWrite();
+            if (frames_run > 2)
+                force.active = false;
             frames_run++;
         } while (frames_run < sim_frames);
         cudaStatus = cudaGetLastError();
@@ -337,6 +339,12 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
             fprintf(stderr, "Cuda kernel launches failed:%s\n", cudaGetErrorString(cudaStatus));
     }
     m_pPyTrans->release();
+    /*debug*/
+    m_pPyTrans->init("Dat/test.dat", total_grid_stream_len, total_num_stream_headers);
+    double test_py_out[4] = { 0.32, -1.45, 12.34e-10, -59.0e7 };
+    m_pPyTrans->cacheDStream(test_py_out, 4);
+    m_pPyTrans->releaseAndWrite();
+    /*     */
     /*
     if (cudaStatus == cudaSuccess)
         cudaStatus = cudaMemcpy(Ux, dev_Ux[0], size * sizeof(double), cudaMemcpyDeviceToHost);
