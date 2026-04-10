@@ -40,40 +40,40 @@ header4 = {
 
 def getGridWidth(header):
     width = header[6]
-    return width
+    return int(width)
 
-def getGridHeight(self, header):
+def getGridHeight(header):
     height = header[7]
-    return height
+    return int(height)
 
-def getExpFactor(self, header):
+def getExpFactor(header):
     exp_factor = header[8]
-    return exp_factor
+    return int(exp_factor)
 
-def getDataLen(self, header): # gets data length in bytes from header, assuming doubles
-    if not header:
+def getDataLen(header): # gets data length in bytes from header, assuming doubles
+    if np.size(header)<1:
         return 0
-    width = self.getGridWidth(self, header)
-    height = self.getGridHeight(self, header)
-    exp_factor = self.getExpFactor(self, header)
+    width = getGridWidth(header)
+    height = getGridHeight(header)
+    exp_factor = getExpFactor(header)
     d_len = width*height*exp_factor
     return 8*d_len
  
-def getDataLabel(self, header):
+def getDataLabel(header):
     if not header:
         return 0
     return header[1]
 
-def getDataAxis(self,header):
+def getDataAxis(header):
     return header[2]
 
-def getDataStartEndCode(self, header):
+def getDataStartEndCode(header):
     return header[3]
 
-def getJacobiFrame(self, header):
+def getJacobiFrame(header):
     return header[5]
 
-def getExpansionFactor(self, header):
+def getExpansionFactor( header):
     return header[8]
 
 def Cti(ch4):
@@ -86,11 +86,11 @@ def Ctl(ch8):
 
 def Ctd(ch8):
     double_val = struct.unpack('<d',ch8) #unpack with little-endian ch[7] is the largest value
-    return double_val
+    return double_val[0]
 
 def streamCtoI(len_stream_in, byte_stream_in, stream_in_offset=0):
     ch4 = bytearray(4)
-    stream_out_len = len_stream_in/4
+    stream_out_len = int(len_stream_in/4)
     if stream_out_len<1:
         return np.empty(shape=(0,), dtype=np.int32)
     I_stream_out = np.zeros(stream_out_len, dtype=np.int32)
@@ -99,9 +99,9 @@ def streamCtoI(len_stream_in, byte_stream_in, stream_in_offset=0):
         stream_i = stream_in_offset+i
         for ch4_i in range(0,4):
             ch4[ch4_i]=byte_stream_in[stream_i+ch4_i]
-            I = Cti(ch4)
-            I_stream_out[stream_out_i]=I
-            stream_out_I+=1
+        I = Cti(ch4)
+        I_stream_out[stream_out_i]=I
+        stream_out_i+=1
     return I_stream_out
 
 def streamCtoL(len_stream_in, byte_stream_in, stream_in_offset=0):  #chars are bytes
@@ -122,7 +122,7 @@ def streamCtoL(len_stream_in, byte_stream_in, stream_in_offset=0):  #chars are b
 
 def streamCtoD(len_stream_in, byte_stream_in, stream_in_offset):
     ch8=bytearray(8)
-    stream_out_len = len_stream_in/8
+    stream_out_len = int(len_stream_in/8)
     if stream_out_len<1:
         return np.empty(shape=(0,), dtype=np.float64)
     D_stream_out = np.zeros(stream_out_len, dtype=np.float64)
@@ -131,9 +131,9 @@ def streamCtoD(len_stream_in, byte_stream_in, stream_in_offset):
         stream_i = stream_in_offset+i
         for ch8_i in range(0,8):
             ch8[ch8_i] = byte_stream_in[stream_i+ch8_i]
-            D_out = Ctd(ch8)
-            D_stream_out[stream_out_i] = D_out
-            stream_out_i+=1
+        D_out = Ctd(ch8)
+        D_stream_out[stream_out_i] = D_out
+        stream_out_i+=1
     return D_stream_out
 
 class CTrans:
@@ -171,7 +171,8 @@ class CTrans:
         return header, data
 
     def readDStream(self, stream_in, stream_len, stream_offset):
-        data = streamCtoD(stream_len, stream_in, stream_offset)
+        char_stream_len = 8*stream_len
+        data = streamCtoD(char_stream_len, stream_in, stream_offset)
         return data
 
     def readFrameStream(self):

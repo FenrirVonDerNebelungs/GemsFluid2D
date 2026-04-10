@@ -146,7 +146,7 @@ void Test::runTestAdvection(
     m_pCUDA_wrap->bilinearAprox_scaledFrame(Ux_bilinear, Uy_bilinear, Ux[frame_in_index], Uy[frame_in_index], m_drawVelocity->getBlowFactor());
     fill_display_frame(m_Ux_bilinear, Ux_bilinear, static_cast<int>(size_in_pix_of_blown_image));
     fill_display_frame(m_Uy_bilinear, Uy_bilinear, static_cast<int>(size_in_pix_of_blown_image));
-    m_pPyTrans->cacheGrid(
+    /*m_pPyTrans->cacheGrid(
         m_Ux_bilinear, 
         (m_pCUDA_wrap->grid_width*m_drawVelocity->getBlowFactor()), 
         (m_pCUDA_wrap->grid_height*m_drawVelocity->getBlowFactor()), 
@@ -167,7 +167,7 @@ void Test::runTestAdvection(
         n_PyTrans::start_frame_code,
         0,
         m_drawVelocity->getBlowFactor()
-    );
+    );*/
     m_pCUDA_wrap->advection_backtrace(relPos_x, relPos_y, Ux, Uy, frame_in_index);
     fill_display_frame(m_relPos_x, relPos_x);
     fill_display_frame(m_relPos_y, relPos_y);
@@ -307,9 +307,9 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
         cudaStatus = cudaMemcpy(dev_Uy[0], Uy, size * sizeof(double), cudaMemcpyHostToDevice);
 
     int grid_stream_len = m_pCUDA_wrap->getGridWidthHeight().height * m_pCUDA_wrap->getGridWidthHeight().width;
-    int grid_exp_stream_len = grid_stream_len * m_blow_factor * m_blow_factor;
-    int total_grid_stream_len = grid_stream_len * (11 + m_num_display_frames) + grid_exp_stream_len * 2;
-    int total_num_stream_headers = (11 + m_num_display_frames) + 2;
+    //int grid_exp_stream_len = grid_stream_len * m_blow_factor * m_blow_factor;
+    int total_grid_stream_len = grid_stream_len * (11 + m_num_display_frames);// +grid_exp_stream_len * 2;
+    int total_num_stream_headers = (11 + m_num_display_frames); //+ 2;
     m_pPyTrans->init("Dat/frames.dat", total_grid_stream_len, total_num_stream_headers);
     if (cudaStatus == cudaSuccess) {
         int frames_run = 0;
@@ -329,7 +329,7 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
                 frame_index, 
                 p_frame_index, 
                 force);
-            //m_pPyTrans->resetAndWrite();
+            m_pPyTrans->resetAndWrite();
             if (frames_run > 2)
                 force.active = false;
             frames_run++;
@@ -338,12 +338,12 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
         if (cudaStatus != cudaSuccess)
             fprintf(stderr, "Cuda kernel launches failed:%s\n", cudaGetErrorString(cudaStatus));
     }
-    m_pPyTrans->release();
-    /*debug*/
-    m_pPyTrans->init("Dat/test.dat", total_grid_stream_len, total_num_stream_headers);
-    double test_py_out[4] = { 0.32, -1.45, 12.34e-10, -59.0e7 };
-    m_pPyTrans->cacheDStream(test_py_out, 4);
     m_pPyTrans->releaseAndWrite();
+    /*debug*/
+    //m_pPyTrans->init("Dat/test.dat", total_grid_stream_len, total_num_stream_headers);
+    //double test_py_out[4] = { 0.32, -1.45, 12.34e-10, -59.0e7 };
+    //m_pPyTrans->cacheDStream(test_py_out, 4);
+    //m_pPyTrans->releaseAndWrite();
     /*     */
     /*
     if (cudaStatus == cudaSuccess)

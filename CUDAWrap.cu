@@ -50,7 +50,7 @@ void CUDAWrap::advection(double* Ux[], double* Uy[], int frame_index) {
         Ux[frame_i.out], 
         Uy[frame_i.out], 
         Ux[frame_i.in], 
-        Ux[frame_i.in], 
+        Uy[frame_i.in], 
         delta_t, 
         delta_x, 
         grid_width, 

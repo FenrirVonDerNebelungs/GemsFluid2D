@@ -134,7 +134,7 @@ class drawFrame:
 
 class Test:
 
-    def __init__(self, filename = '../Dat/test.dat'):#'../Dat/frames.dat'):
+    def __init__(self, filename = '../Dat/frames.dat'):#'../Dat/test.dat'):#'../Dat/frames.dat'):
         grid_stream_len = g_grid_width*g_grid_width
         grid_exp_stream_len = grid_stream_len*g_blow_factor*g_blow_factor
         total_grid_stream_len = grid_stream_len*(11+g_num_jacobi_frames)+grid_exp_stream_len*2
@@ -165,3 +165,6 @@ class Test:
             if(len_returned==self.num_headers):
                 self.Draw.draw(header_stack, data_stack)
             
+testInst = Test()
+testInst.Run()
+print("finished")

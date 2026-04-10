@@ -7,7 +7,9 @@
 #endif
 #include<stdint.h>
 
-#define PYTRANS_NUMHEADER_FIELDS 9
+#define PYTRANS_NUMHEADER_FIELDS 11
+#define PYTRANS_FILE_HEADER_LEN 7
+#define PYTRANS_CACHE_HEADER_LEN 7
 
 namespace n_PyTrans {
 	/*These are the IDs for each object type used to identify the object transmitted, the int32_t is sent at the start of the char string
@@ -48,7 +50,50 @@ namespace n_PyTrans {
 	/* 9th 32 bits cnt code*
 		grid_expansion
 	*/
+	/* 10th 32 bits code
+		max value in grid or image, used for normalization in python 
+		*/
+	/* 11th 32 bits code
+		min value in grid or image, used for normalization in python
+		*/ 
 	const int obj_header_len = PYTRANS_NUMHEADER_FIELDS;
+
+	/*file header*/
+	/*1st 32 bits
+	* len of file header in bytes (chars)
+	*/
+	/* 2nd 32 bits
+	* len of each cache header in bytes (chars)
+	*/
+	/* 3rd 32 bits 
+	* len of each stream header
+	*/
+	/*4th 32 bits
+	* number of caches written
+	*/
+	/* 5th 32 bits
+	* max number of headers per cache
+	*/
+	/* 6th 32 bits
+	* max number of stream headers per cache
+	*/
+	/* 7th 32 bits
+	* max number of image headers per cache
+	*/
+	const int file_header_len = PYTRANS_FILE_HEADER_LEN;
+
+	/*1st len of cache header in bytes*/
+	/*2nd len of each stream header in bytes */
+	/*3rd number of headers per cache*/
+	/*4th number of stream header per cache*/
+	/*5th number of image header per cache*/ 
+	/*6th data type for stream
+	* 0x02 is double
+	*/
+	/*7th cache size in bytes, after header*/
+	const int32_t data_type_double_code = 0x02;
+
+	const int cache_header_len = PYTRANS_CACHE_HEADER_LEN;
 
 	/* conversion functions used so that int and float data can be packed into a char array which is then either sent or
 	   recieved by python, it is assumed that 'float' is a 32 bit float that follows the IEEE 754 standard, this is supposed to be the default standard for windows*/
@@ -83,7 +128,7 @@ public:
 	PyTrans();
 	~PyTrans();
 
-	bool init(const char* filename=nullptr, int total_steam_len_in_doubles = 0, int num_headers=1);
+	bool init(const char* filename=nullptr, int total_stream_len_in_doubles = 0, int num_headers=1, int max_img_size_in_pix=0, int num_images=1);
 	bool releaseAndWrite();
 	void release();
 
@@ -95,21 +140,47 @@ public:
 		int32_t label_code = 0,
 		int32_t axis_code=0,
 		int32_t start_end_code = 0,
-		int jacobi_frame=0, 
-		int exp_factor=1
+		int jacobi_frame=0
+	);
+	bool cacheImage(
+		const unsigned char img_vals[], /*assumes 3 char per pix input stream size is width*height*3 */
+		int img_width,
+		int img_height,
+		int number_of_loops = 0,
+		int32_t label_code = 0,
+		int32_t axis_code = 0,
+		int32_t start_end_code = 0,
+		float max = 0.f,
+		float min = 0.f,
+		int expansion = 1
 	);
 	bool cacheDStream(const double d_vals[], int len);
 	void resetCache();
 
 	bool resetAndWrite();
 private:
-	int m_header_len;/*header length in chars, not int32_t's */
+	int m_file_header_len;/* len file header in chars (bytes)*/
+	int m_cache_header_len;/*len of each cache header in chars (bytes)*/
+	int m_header_len;/*stream header length in chars, not int32_t's */
+	int m_num_caches_written;
+	int m_num_grid_headers_cached;/*per cache */
+	int m_num_image_headers_cached;/*per cache */
+	int m_max_grid_headers_cached;
+	int m_max_image_headers_cached;
+	char* m_cache_header;
 	char* m_culmative_stream;
 	int   m_culmative_stream_len;
 	int   m_culmative_stream_len_max;
+	char* m_image_stream;
+	int   m_image_stream_len;
+	int   m_image_stream_len_max;
 	char  m_filename[30];
 
+
+	bool writeFileHeader();
 	bool writeBinary();
+
+	bool cacheHeader();
 
 	bool sendGrid(
 		char ch_stream[],
@@ -121,10 +192,35 @@ private:
 		int32_t start_end_code = 0,
 		int number_of_loops = 0,
 		int jacobi_frame = 0,
-		int exp_factor=1,
 		int ch_stream_offset=0,
 		int ch_stream_len = -1);
 	int getGridStreamLen(int grid_width, int grid_height);/*assumes double for grid includes header len*/
+
+	bool sendImage(
+		char ch_stream[],
+		const unsigned char img_vals[],
+		int img_width,
+		int img_height,
+		int32_t label_code = 0,
+		int32_t axis_code = 0,
+		int32_t start_end_code = 0,
+		int number_of_loops = 0,
+		float max = 0.f,
+		float min = 0.f,
+		int expansion = 1,
+		int ch_stream_offset = 0,
+		int ch_stream_len = -1
+	);
+
+	bool sendCacheHeader(
+		char ch_stream[],
+		int number_of_stream_headers,
+		int number_of_image_headers,
+		int data_type_code,
+		int cache_size_in_bytes,
+		int ch_stream_offset=0,
+		int ch_stream_len=-1
+	);
 
 	bool sendHeader(
 		char ch_stream[],
@@ -136,7 +232,9 @@ private:
 		int jacobi_frame,
 		int width,
 		int height,
-		int exp_factor=1,
+		int expansion,
+		float max,
+		float min,
 		int ch_stream_offset=0,
 		int ch_stream_len=-1
 	);

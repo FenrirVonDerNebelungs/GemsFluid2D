@@ -199,15 +199,30 @@ bool n_PyTrans::streamCtoD(int len, const char chs[], double Fs[], int char_offs
 	}
 	return true;
 }
-PyTrans::PyTrans() :m_culmative_stream(nullptr), m_culmative_stream_len(0), m_culmative_stream_len_max(0) {
+PyTrans::PyTrans() :
+	m_num_caches_written(0),
+	m_num_grid_headers_cached(0),
+	m_num_image_headers_cached(0),
+	m_max_grid_headers_cached(0),
+	m_max_image_headers_cached(0),
+	m_cache_header(nullptr),
+	m_culmative_stream(nullptr), 
+	m_culmative_stream_len(0), 
+	m_culmative_stream_len_max(0),
+	m_image_stream(nullptr), 
+	m_image_stream_len(0), 
+	m_image_stream_len_max(0) 
+{
+	m_file_header_len = sizeof(int32_t) * n_PyTrans::file_header_len;	/*sizeof returns size in bytes 1 char = 1 byte*/
 	m_header_len = n_PyTrans::sizeCharFromI(n_PyTrans::obj_header_len);
+	m_cache_header_len = n_PyTrans::sizeCharFromI(n_PyTrans::cache_header_len);
 	for (int i = 0; i < 30; i++)
 		m_filename[i] = '\0';
 }
 PyTrans::~PyTrans() {
 	;
 }
-bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int num_headers) {
+bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int num_headers, int max_img_size_in_pix, int num_images) {
 	bool retval = true;
 	if (filename != nullptr)
 		strcpy_s(m_filename, filename);
@@ -217,23 +232,59 @@ bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int nu
 	if(filename!=nullptr)
 		term_loc = (int)std::strlen(filename);
 	m_filename[term_loc] = '\0';
+	m_num_caches_written = 0;
+	m_num_grid_headers_cached = 0;
+	m_num_image_headers_cached = 0;
+	if(m_cache_header_len>0){
+		m_cache_header = new char[m_cache_header_len];
+		if (m_cache_header == nullptr)
+			return false;
+		for(int ii=0; ii<m_cache_header_len; ii++)
+			m_cache_header[ii] = '\0';
+	}
 	if (total_stream_len_in_doubles > 0) {
 		m_culmative_stream_len_max = n_PyTrans::sizeCharFromL(total_stream_len_in_doubles);
-		m_culmative_stream_len_max += num_headers * (m_header_len + 1);/*1 is an extra buffer*/
+		m_culmative_stream_len_max += (num_headers * m_header_len);
 		m_culmative_stream = new char[m_culmative_stream_len_max];
-		if (m_culmative_stream == nullptr)
+		if (m_culmative_stream == nullptr) {
+			release();
 			return false;
+		}
 	}
-	else
+	if (max_img_size_in_pix > 0) {
+		m_image_stream_len_max = 3*sizeof(char) * max_img_size_in_pix;
+		m_image_stream_len_max += (num_images * m_header_len);
+		m_image_stream = new char[m_image_stream_len_max];
+		if (m_image_stream == nullptr) {
+			release();
+			return false;
+		}
+	}
+	if (total_stream_len_in_doubles <= 0 && max_img_size_in_pix <= 0)
 		retval = false;
+	if(retval)
+		retval = writeFileHeader();
 	return retval;
 }
 bool PyTrans::releaseAndWrite() {
-	bool retVal = writeBinary();
+	bool retVal = writeFileHeader();
 	release();
 	return retVal;
 }
 void PyTrans::release() {
+	m_num_caches_written = 0;
+	m_num_grid_headers_cached = 0;
+	m_num_image_headers_cached = 0;
+	m_max_grid_headers_cached = 0;
+	m_max_image_headers_cached = 0;
+	if(m_cache_header!=nullptr)
+		delete[] m_cache_header;
+	m_cache_header = nullptr;
+	if(m_image_stream!=nullptr)
+		delete[] m_image_stream;
+	m_image_stream = nullptr;
+	m_image_stream_len_max = 0;
+	m_image_stream_len = 0;
 	if (m_culmative_stream != nullptr)
 		delete[] m_culmative_stream;
 	m_culmative_stream = nullptr;
@@ -249,8 +300,7 @@ bool PyTrans::cacheGrid(
 	int32_t label_code,
 	int32_t axis_code,
 	int32_t start_end_code,
-	int jacobi_frame,
-	int exp_factor
+	int jacobi_frame
 ) {
 	int new_cache_len = getGridStreamLen(grid_width, grid_height);
 	if ((new_cache_len + m_culmative_stream_len) >= m_culmative_stream_len_max)
@@ -265,9 +315,43 @@ bool PyTrans::cacheGrid(
 		start_end_code, 
 		number_of_loops, 
 		jacobi_frame, 
-		exp_factor, 
 		m_culmative_stream_len);
 	m_culmative_stream_len += new_cache_len;
+	m_num_grid_headers_cached++;
+	return retVal;
+}
+bool PyTrans::cacheImage(
+	const unsigned char img_vals[],
+	int img_width,
+	int img_height,
+	int number_of_loops,
+	int32_t label_code,
+	int32_t axis_code,
+	int32_t start_end_code,
+	float max,
+	float min,
+	int expansion
+) {
+	int image_size = img_width * img_height * 3;
+	int new_cache_len = image_size + m_header_len;
+	if ((new_cache_len + m_image_stream_len) >= m_image_stream_len_max)
+		return false;
+	bool retVal = sendImage(
+		m_image_stream, 
+		img_vals, 
+		img_width, 
+		img_height, 
+		label_code, 
+		axis_code, 
+		start_end_code, 
+		number_of_loops, 
+		max, 
+		min, 
+		expansion, 
+		m_image_stream_len
+	);
+	m_image_stream_len += new_cache_len;
+	m_num_image_headers_cached++;
 	return retVal;
 }
 bool PyTrans::cacheDStream(const double d_vals[], int len) {
@@ -275,19 +359,49 @@ bool PyTrans::cacheDStream(const double d_vals[], int len) {
 		return false;
 	bool ret_val = n_PyTrans::streamDtoC(len, d_vals, m_culmative_stream, m_culmative_stream_len);
 	if (ret_val)
-		m_culmative_stream_len += len;
+		m_culmative_stream_len += n_PyTrans::sizeCharFromL(len);
 	return ret_val;
 }
 void PyTrans::resetCache() {
 	m_culmative_stream_len = 0;
+	if(m_num_grid_headers_cached>m_max_grid_headers_cached)
+		m_max_grid_headers_cached = m_num_grid_headers_cached;
+	if (m_num_image_headers_cached > m_max_image_headers_cached)
+		m_max_image_headers_cached = m_num_image_headers_cached;
+	m_num_grid_headers_cached = 0;
+	m_num_image_headers_cached = 0;
 }
 bool PyTrans::resetAndWrite() {
+	cacheHeader();
 	bool good_write = writeBinary();
 	resetCache();
 	return good_write;
 }
+bool PyTrans::writeFileHeader() {
+	if (m_filename[0] == '\0' )
+		return false;
+	std::ofstream outF;
+	outF.open(m_filename, std::ios::out | std::ios::binary);
+	if (!outF.is_open())
+		return false;
+	char* file_header_ch = new char[m_file_header_len];
+	int32_t file_header_I[n_PyTrans::file_header_len];
+	file_header_I[0] = m_file_header_len;
+	file_header_I[1] = m_cache_header_len;
+	file_header_I[2] = m_header_len;
+	file_header_I[3] = m_num_caches_written;
+	file_header_I[4] = (m_max_grid_headers_cached+m_max_image_headers_cached);
+	file_header_I[5] = m_max_grid_headers_cached;
+	file_header_I[6] = m_max_image_headers_cached;
+	bool retval = n_PyTrans::streamItoC(n_PyTrans::file_header_len, file_header_I, file_header_ch);
+	outF.seekp(0, std::ios::beg);
+	outF.write(file_header_ch, m_file_header_len * sizeof(char));
+	outF.close();
+	delete[] file_header_ch;
+	return true;
+}
 bool PyTrans::writeBinary() {
-	if (m_filename[0] == '\0' || m_culmative_stream_len<=0)
+	if (m_filename[0] == '\0' || (m_culmative_stream_len<=0 && m_image_stream_len<=0) )
 		return false;
 	std::ofstream outF;
 	outF.open(m_filename, std::ios::app | std::ios::binary);
@@ -296,9 +410,26 @@ bool PyTrans::writeBinary() {
 	if (!outF.is_open()) {
 		return false;
 	}
-	outF.write(m_culmative_stream, m_culmative_stream_len * sizeof(char));
+	if(m_cache_header_len>0)
+		outF.write(m_cache_header, m_cache_header_len * sizeof(char));
+	if (m_culmative_stream_len > 0)
+		outF.write(m_culmative_stream, m_culmative_stream_len * sizeof(char));
+	if (m_image_stream_len > 0)
+		outF.write(m_image_stream, m_image_stream_len * sizeof(char));
 	outF.close();
+	m_num_caches_written++;
 	return true;
+}
+bool PyTrans::cacheHeader() {
+	if(m_cache_header_len<1)
+		return false;
+	return sendCacheHeader(
+		m_cache_header,
+		m_num_grid_headers_cached,
+		m_num_image_headers_cached,
+		n_PyTrans::data_type_double_code,
+		(m_culmative_stream_len + m_image_stream_len)
+	);
 }
 bool PyTrans::sendGrid(
 	char ch_stream[],
@@ -310,7 +441,6 @@ bool PyTrans::sendGrid(
 	int32_t start_end_code, 
 	int number_of_loops, 
 	int jacobi_frame,
-	int exp_factor,
 	int ch_stream_offset,
 	int ch_stream_len
 ) {
@@ -329,7 +459,8 @@ bool PyTrans::sendGrid(
 		jacobi_frame, 
 		grid_width, 
 		grid_height, 
-		exp_factor, 
+		0.f,
+		0.f,
 		ch_stream_offset);
 	int len = grid_width * grid_height;
 	int data_stream_offset = m_header_len + ch_stream_offset;
@@ -339,6 +470,70 @@ int PyTrans::getGridStreamLen(int grid_width, int grid_height) {
 	int d_len = grid_width * grid_height;
 	int char_len = n_PyTrans::sizeCharFromL(d_len);
 	return char_len + m_header_len;
+}
+bool PyTrans::sendImage(
+	char ch_stream[],
+	const unsigned char img_vals[],
+	int img_width,
+	int img_height,
+	int32_t label_code,
+	int32_t axis_code,
+	int32_t start_end_code,
+	int number_of_loops,
+	float max,
+	float min,
+	int expansion,
+	int ch_stream_offset,
+	int ch_stream_len
+) {
+	if (ch_stream == nullptr)
+		return false;
+	int image_size = img_width * img_height * 3;
+	if (ch_stream_len >= 0)
+		if (!((image_size + m_header_len) == ch_stream_len))
+			return false;
+	bool retval= sendHeader(
+		ch_stream, 
+		n_PyTrans::img_code, 
+		label_code, 
+		axis_code, 
+		start_end_code, 
+		number_of_loops, 
+		0, 
+		img_width, 
+		img_height, 
+		expansion, 
+		max, 
+		min, 
+		ch_stream_offset);
+	if (retval) {
+		int offset = ch_stream_offset + m_header_len;
+		for(int i=0; i<image_size; i++){
+			ch_stream[offset + i] = static_cast<char>(img_vals[i]);
+		}
+	}
+	return retval;
+}
+bool PyTrans::sendCacheHeader(
+	char ch_stream[],
+	int number_of_stream_headers,
+	int number_of_image_headers,
+	int data_type_code,
+	int cache_size_in_bytes,
+	int ch_stream_offset,
+	int ch_stream_len
+) {
+	if (ch_stream_len >= 0 && ch_stream_len > m_cache_header_len)
+		return false;
+	int32_t cache_header_I[n_PyTrans::cache_header_len];
+	cache_header_I[0] = m_cache_header_len;
+	cache_header_I[1] = m_header_len;
+	cache_header_I[2] = number_of_stream_headers+number_of_image_headers;
+	cache_header_I[3] = number_of_stream_headers;
+	cache_header_I[4] = number_of_image_headers;
+	cache_header_I[5] = data_type_code;
+	cache_header_I[6] = cache_size_in_bytes;
+	return n_PyTrans::streamItoC(n_PyTrans::cache_header_len, cache_header_I, ch_stream, ch_stream_offset);
 }
 bool PyTrans::sendHeader(
 	char ch_stream[],
@@ -350,7 +545,9 @@ bool PyTrans::sendHeader(
 	int jacobi_frame,
 	int width,
 	int height,
-	int exp_factor,
+	int expansion,
+	float max,
+	float min,
 	int ch_stream_offset,
 	int ch_stream_len
 )
@@ -366,6 +563,8 @@ bool PyTrans::sendHeader(
 	header_I_stream[5] = (int32_t)jacobi_frame;
 	header_I_stream[6] = (int32_t)width;
 	header_I_stream[7] = (int32_t)height;
-	header_I_stream[8] = (int32_t)exp_factor;
+	header_I_stream[8] = (int32_t)expansion;
+	header_I_stream[9] = n_PyTrans::Fti(max);
+	header_I_stream[10] = n_PyTrans::Fti(min);
 	return n_PyTrans::streamItoC(PYTRANS_NUMHEADER_FIELDS, header_I_stream, ch_stream, ch_stream_offset);
 }
