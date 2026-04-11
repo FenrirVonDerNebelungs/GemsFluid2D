@@ -88,9 +88,11 @@ namespace n_PyTrans {
 	/*4th number of stream header per cache*/
 	/*5th number of image header per cache*/ 
 	/*6th data type for stream
-	* 0x02 is double
+	* 0x01 is float 32
+	* 0x02 is double 64
 	*/
 	/*7th cache size in bytes, after header*/
+	const int32_t data_type_float_code = 0x01;
 	const int32_t data_type_double_code = 0x02;
 
 	const int cache_header_len = PYTRANS_CACHE_HEADER_LEN;

@@ -88,16 +88,11 @@ class drawFrame:
             start_end_label = ct.header4[ct.getDataStartEndCode(header)]
             match label:
                 case 'U':
-                    expansion_factor = ct.getExpansionFactor(header)
-                    if expansion_factor==1 and axis=='X':
+                    if axis=='X':
                         Ux = data_stack[i]
                         Uy = data_stack[i+1]
                         graph_title = "U at Frame: "+str(self.frame_index) + " step:  " +start_end_label
                         self.draw_U_vector(Ux, Uy, graph_title)
-                    else:
-                        U_exp = data_stack[i]
-                        graph_title = "U "+axis +"  expanded"
-                        self.draw_scalar(U_exp, graph_title, expansion_factor)
                 case'relPos':
                     expansion_factor = ct.getExpansionFactor(header)
                     U_exp = data_stack[i-2]
@@ -105,12 +100,10 @@ class drawFrame:
                     graph_title = "Back traced U: "+axis
                     self.draw_scalar_and_points(U_exp, U_back, graph_title, expansion_factor)
                 case 'W':
-                    expansion_factor = ct.getExpansionFactor(header)
-                    if expansion_factor==1:
-                        Wx = data_stack[i]
-                        Wy = data_stack[i+1]
-                        graph_title = "W at Frame: "+str(self.frame_index) 
-                        self.draw_U_vector(Wx, Wy, graph_title)
+                    Wx = data_stack[i]
+                    Wy = data_stack[i+1]
+                    graph_title = "W at Frame: "+str(self.frame_index) 
+                    self.draw_U_vector(Wx, Wy, graph_title)
                 case 'DivW':
                     DivW = data_stack[i]
                     self.draw_scalar(DivW, 'Div W')
