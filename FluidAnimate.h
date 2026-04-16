@@ -13,7 +13,7 @@ public:
 
 	void init(s_WH& grid_wh);
 
-	s_force getForce(int frame_cnt, int start_frame=0, double Ang=0.174533, double Fmag=1000.0, int center_i=-4, int center_j=3, double R=10.0);//Fmag was originally 1
+	s_force getForce(int frame_cnt, int start_frame=0, double Ang=0.174533, double Fmag=50.0, int center_i=-4, int center_j=3, double R=10.0);//Fmag was originally 1
 private:
 	int m_grid_width;
 	int m_grid_height;

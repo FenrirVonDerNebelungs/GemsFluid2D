@@ -185,8 +185,14 @@ void CUDAWrap::bilinearAprox_scaledFrame(double* Ux_scaled, double* Uy_scaled, c
 int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames) {
     unsigned int size = grid_width * grid_height;
     double* dev_Ux[] = { 0,0 };/*two frames */
+    double* dev_Ux_0 = 0;
+	double* dev_Ux_1 = 0;
     double* dev_Uy[] = { 0,0 };
+	double* dev_Uy_0 = 0;
+	double* dev_Uy_1 = 0;
     double* dev_p[] = { 0,0 };
+	double* dev_p_0 = 0;
+	double* dev_p_1 = 0;
     double* scratch = 0;
 
     cudaError_t cudaStatus = cudaSuccess;
@@ -195,17 +201,17 @@ int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, in
         fprintf(stderr, "cudaSetDevice failed!");
 
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_Ux[0]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_Ux_0, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_Ux[1]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_Ux_1, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_Uy[0]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_Uy_0, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_Uy[1]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_Uy_1, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_p[0]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_p_0, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMalloc((void**)&(dev_p[1]), size * sizeof(double));
+        cudaStatus = cudaMalloc((void**)&dev_p_1, size * sizeof(double));
     if (cudaStatus == cudaSuccess)
 		cudaStatus = cudaMalloc((void**)&scratch, size * sizeof(double));
     if (cudaStatus != cudaSuccess)
@@ -213,14 +219,23 @@ int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, in
 
 
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(dev_Ux[0], Ux, size * sizeof(double), cudaMemcpyHostToDevice);
+        cudaStatus = cudaMemcpy(dev_Ux_0, Ux, size * sizeof(double), cudaMemcpyHostToDevice);
+    if(cudaStatus==cudaSuccess)
+		cudaStatus = cudaMemcpy(dev_Uy_0, Uy, size * sizeof(double), cudaMemcpyHostToDevice);
+
+	dev_Ux[0] = dev_Ux_0;
+	dev_Ux[1] = dev_Ux_1;
+	dev_Uy[0] = dev_Uy_0;
+	dev_Uy[1] = dev_Uy_1;
+	dev_p[0] = dev_p_0;
+	dev_p[1] = dev_p_1;
 
     if (cudaStatus == cudaSuccess) {
         int frames_run = 0;
         int frame_index = 0;
         int p_frame_index = 0;
         do {
-			runFrame(dev_Ux, dev_Ux, dev_p, scratch, frame_index, p_frame_index, force);
+			runFrame(dev_Ux, dev_Uy, dev_p, scratch, frame_index, p_frame_index, force);
 			frames_run++;
         } while (frames_run <= sim_frames);
         cudaStatus = cudaGetLastError();
@@ -228,21 +243,21 @@ int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, in
             fprintf(stderr, "Cuda kernel launches failed:%s\n", cudaGetErrorString(cudaStatus));
     }
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(Ux, dev_Ux[0], size * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaStatus = cudaMemcpy(Ux, dev_Ux_0, size * sizeof(double), cudaMemcpyDeviceToHost);
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(Uy, dev_Uy[0], size * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaStatus = cudaMemcpy(Uy, dev_Uy_0, size * sizeof(double), cudaMemcpyDeviceToHost);
     if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(pressure, dev_p[0], size * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaStatus = cudaMemcpy(pressure, dev_p_0, size * sizeof(double), cudaMemcpyDeviceToHost);
 
     if (cudaStatus != cudaSuccess)
         fprintf(stderr, "cudaMemcpy failed!");
 
-    cudaFree(dev_Ux[0]);
-    cudaFree(dev_Ux[1]);
-    cudaFree(dev_Uy[0]);
-	cudaFree(dev_Uy[1]);
-    cudaFree(dev_p[0]);
-	cudaFree(dev_p[1]);
+    cudaFree(dev_Ux_0);
+    cudaFree(dev_Ux_1);
+    cudaFree(dev_Uy_0);
+	cudaFree(dev_Uy_1);
+    cudaFree(dev_p_0);
+	cudaFree(dev_p_1);
 	cudaFree(scratch);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "runCUDA failed");

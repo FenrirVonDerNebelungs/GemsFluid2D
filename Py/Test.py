@@ -2,26 +2,24 @@ import CTrans as ct
 import numpy as np
 import matplotlib.pyplot as plt
 
-g_grid_width=4*16
-g_blow_factor = 24
-g_num_grid_standalone_frames = 11
-g_num_jacobi_frames = 10
-g_num_expanded_frames = 2
+
 g_delta_x=1e-3
 g_delta_t=1e-3
 
 class drawFrame:
-    def __init__(self, frame_index, filename, num_headers_per_frame, framesize):
-        self.grid_wh = g_grid_width
-        self.grid_exp_wh = g_grid_width*g_blow_factor
+    def __init__(self, frame_index):
+        self.grid_wh = [0,0]
         self.frame_index=frame_index
 
     def updateFrameIndex(self, frame_index):
         self.frame_index = frame_index
+        
+    def setGridWH(self, width, height):
+        self.grid_wh = [width, height]
 
     def convertTo2D(self, raw_array, exp_factor=1):
-        width = g_grid_width*exp_factor
-        height = width
+        width = self.grid_wh[0]
+        height = self.grid_wh[1]
         V_array = np.zeros((width, height))
         for j in range(height):
             for i in range(width):
@@ -30,7 +28,9 @@ class drawFrame:
 
 
     def draw_U_vector(self, Ux, Uy, graph_title):
-        x,y = np.meshgrid(np.arrange(g_delta_x, g_grid_width*g_delta_x, g_delta_x), np.arrange(g_delta_x, g_grid_width*g_delta_x, g_delta_x))
+        gwidth = self.grid_wh[0]
+        gheight = self.grid_wh[1]
+        x,y = np.meshgrid(np.arange(g_delta_x, (gwidth+1)*g_delta_x, g_delta_x), np.arange(g_delta_x, (gheight+1)*g_delta_x, g_delta_x))
         Ux_2D = self.convertTo2D(Ux)
         Uy_2D = self.convertTo2D(Uy)
         Mag = np.sqrt(Ux_2D**2 + Uy_2D**2)
@@ -45,11 +45,12 @@ class drawFrame:
         plt.show()
 
     def draw_scalar(self, p, graph_title, exp_factor=1):
+        gwidth = self.grid_wh[0]
         delta=g_delta_x/(float(exp_factor))
         mesh_start = delta/2.0 #inclusive, defaults to zero if not specified
-        mesh_stop = g_grid_width*g_delta_x + delta/2.0 #exclusive not in array
+        mesh_stop = gwidth*g_delta_x + delta/2.0 #exclusive not in array
         mesh_step = delta
-        x,y = np.meshgrid(np.arrange(mesh_start, mesh_stop, mesh_step), np.arrange(mesh_start, mesh_stop, mesh_step))
+        x,y = np.meshgrid(np.arange(mesh_start, mesh_stop, mesh_step), np.arange(mesh_start, mesh_stop, mesh_step))
         p_2D = self.convertTo2D(p, exp_factor)
         fig=plt.figure(figsize=(7,7))
         ax=plt.axes(projection='3d')
@@ -58,22 +59,24 @@ class drawFrame:
         plt.show()
 
     def draw_scalar_and_points(self, U_exp, U, graph_title, exp_factor):
+        gwidth = self.grid_wh[0]
+        
         fig=plt.figure(figsize=(7,7))
         ax = fig.add_subplot(111, projection='3d')
 
         delta=g_delta_x/(float(exp_factor))
         mesh_start = delta/2.0 #inclusive, defaults to zero if not specified
-        mesh_stop = g_grid_width*g_delta_x + delta/2.0 #exclusive not in array
+        mesh_stop = gwidth*g_delta_x + delta/2.0 #exclusive not in array
         mesh_step = delta
-        x_exp,y_exp = np.meshgrid(np.arrange(mesh_start, mesh_stop, mesh_step), np.arrange(mesh_start, mesh_stop, mesh_step))
+        x_exp,y_exp = np.meshgrid(np.arange(mesh_start, mesh_stop, mesh_step), np.arange(mesh_start, mesh_stop, mesh_step))
         U_exp_2D = self.convertTo2D(U_exp, exp_factor)
 
         surf = ax.plot_surface(x_exp,y_exp,U_exp_2D,cmap='coolwarm')
 
         mesh_start = g_delta_x/2.0
-        mesh_stop = g_grid_width*g_delta_x + g_delta_x/2.0
+        #mesh_stop = self.grid_wh*g_delta_x + g_delta_x/2.0
         mesh_step = g_delta_x
-        x,y = np.meshgrid(np.arrange(mesh_start, mesh_stop, mesh_step), np.arrange(mesh_start, mesh_stop, mesh_step))
+        x,y = np.meshgrid(np.arange(mesh_start, mesh_stop, mesh_step), np.arange(mesh_start, mesh_stop, mesh_step))
         U_2D = self.convertTo2D(U)
         ax.scatter(x, y, U_2D, color='green', s=50)
 
@@ -83,6 +86,9 @@ class drawFrame:
     def draw(self, header_stack, data_stack):
         for i in range(len(header_stack)):
             header = header_stack[i]
+            grid_width = ct.getGridWidth(header)
+            grid_height = ct.getGridHeight(header)
+            self.setGridWH(grid_width, grid_height)
             label = ct.header2[ct.getDataLabel(header)]
             axis = ct.header3[ct.getDataAxis(header)]
             start_end_label = ct.header4[ct.getDataStartEndCode(header)]
@@ -94,16 +100,17 @@ class drawFrame:
                         graph_title = "U at Frame: "+str(self.frame_index) + " step:  " +start_end_label
                         self.draw_U_vector(Ux, Uy, graph_title)
                 case'relPos':
-                    expansion_factor = ct.getExpansionFactor(header)
-                    U_exp = data_stack[i-2]
-                    U_back = data_stack[i]
-                    graph_title = "Back traced U: "+axis
-                    self.draw_scalar_and_points(U_exp, U_back, graph_title, expansion_factor)
+                    if axis=='X':
+                        rel_x = data_stack[i]
+                        rel_y = data_stack[i+1]
+                        graph_title = "Back traced U after delta_t: "
+                        self.draw_U_vector(rel_x, rel_y, graph_title)
                 case 'W':
-                    Wx = data_stack[i]
-                    Wy = data_stack[i+1]
-                    graph_title = "W at Frame: "+str(self.frame_index) 
-                    self.draw_U_vector(Wx, Wy, graph_title)
+                    if axis=='X':
+                        Wx = data_stack[i]
+                        Wy = data_stack[i+1]
+                        graph_title = "W at Frame: "+str(self.frame_index) 
+                        self.draw_U_vector(Wx, Wy, graph_title)
                 case 'DivW':
                     DivW = data_stack[i]
                     self.draw_scalar(DivW, 'Div W')
@@ -113,7 +120,7 @@ class drawFrame:
                     frame_title = 'P jacobi frame: '+ str(frame_i)
                     self.draw_scalar(pressure, frame_title)
                 case 'P':
-                    P = data_stack[i]
+                    pressure = data_stack[i]
                     self.draw_scalar(pressure, label)
                 case 'gradP':
                     x=1
@@ -128,34 +135,23 @@ class drawFrame:
 class Test:
 
     def __init__(self, filename = '../Dat/frames.dat'):#'../Dat/test.dat'):#'../Dat/frames.dat'):
-        grid_stream_len = g_grid_width*g_grid_width
-        grid_exp_stream_len = grid_stream_len*g_blow_factor*g_blow_factor
-        total_grid_stream_len = grid_stream_len*(11+g_num_jacobi_frames)+grid_exp_stream_len*2
-        total_num_stream_headers = (11+g_num_jacobi_frames)+2
-        header_len_bytes = ct.CTrans.header_len
-        total_grid_stream_len_bytes = total_grid_stream_len*8
-        total_headers_len_bytes = header_len_bytes*total_num_stream_headers
-        self.framesize = total_grid_stream_len_bytes + total_headers_len_bytes
         self.filename = filename
-        self.num_headers = total_num_stream_headers
-        self.C_Trans = ct.CTrans(filename, total_num_stream_headers,self.framesize)
-        self.Draw = drawFrame(0,filename,total_num_stream_headers,self.framesize)
+        self.C_Trans = ct.CTrans(filename)
+        self.Draw = drawFrame(0)
 
     def testRun(self):
         dat, file_offset = self.C_Trans.readDdat(4,0)
         print(dat)
 
     def Run(self):
-        len_returned = self.num_headers
+        len_returned = 2
         frame_cnt=0
-        file_offset=0
         while len_returned>1:
-            header_stack, data_stack, new_file_offset = self.C_Trans.readFrame(file_offset)
-            file_offset=new_file_offset
+            header_stack, data_stack, new_file_offset = self.C_Trans.readFrame()
             len_returned = len(header_stack)
             self.Draw.updateFrameIndex(frame_cnt)
             frame_cnt += 1
-            if(len_returned==self.num_headers):
+            if(len_returned>=1):
                 self.Draw.draw(header_stack, data_stack)
             
 testInst = Test()

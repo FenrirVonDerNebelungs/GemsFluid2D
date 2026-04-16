@@ -1,3 +1,4 @@
+import os
 from pkgutil import get_data
 import struct
 from threading import setprofile_all_threads
@@ -23,6 +24,7 @@ header2 = {
 }
 #3rd 32 bits
 header3 = {
+    0x00: 'Scalar',
     0x01: 'X',
     0x02: 'Y',
     0x03: 'Scalar',
@@ -55,17 +57,16 @@ def getExpFactor(header):
     exp_factor = header[8]
     return int(exp_factor)
 
-def getDataLen(header): # gets data length in bytes from header, assuming doubles
+def getDataLen(header, float_len=8): # gets data length in bytes from header, assuming doubles
     if np.size(header)<1:
         return 0
     width = getGridWidth(header)
     height = getGridHeight(header)
-    exp_factor = getExpFactor(header)
-    d_len = width*height*exp_factor
-    return 8*d_len
+    d_len = width*height
+    return float_len*d_len
  
 def getDataLabel(header):
-    if not header:
+    if np.size(header)<1:
         return 0
     return header[1]
 
@@ -122,7 +123,8 @@ def Ctf(ch4):
 def streamCtoI(len_stream_in, byte_stream_in, stream_in_offset=0):
     ch4 = bytearray(4)
     stream_out_len = int(len_stream_in/4)
-    if stream_out_len<1:
+    check_len_byte_stream_in = len(byte_stream_in)
+    if stream_out_len<1 or (len_stream_in+stream_in_offset)>check_len_byte_stream_in:
         return np.empty(shape=(0,), dtype=np.int32)
     I_stream_out = np.zeros(stream_out_len, dtype=np.int32)
     stream_out_i=0
@@ -131,7 +133,8 @@ def streamCtoI(len_stream_in, byte_stream_in, stream_in_offset=0):
         for ch4_i in range(0,4):
             ch4[ch4_i]=byte_stream_in[stream_i+ch4_i]
         I = Cti(ch4)
-        I_stream_out[stream_out_i]=I
+        if abs(I) < 0x7fffffff:
+            I_stream_out[stream_out_i]=I
         stream_out_i+=1
     return I_stream_out
 
@@ -188,32 +191,39 @@ class CTrans:
     def __init__(self, filename): #frameSize in bytes
         self.filename = filename
         self.file_header_len=0
-        file_header_stream = self.readFileHeader(filename) #sets file_header_len
+        self.file_len_bytes=0
+        file_header_stream = self.readFileHeader(filename) #sets file_header_len and file_len_bytes
         self.file_offset = self.file_header_len
-        file_header_num_fields = self.file_header_len/4
-        file_header = streamCtoI(file_header_num_fields,file_header_stream)
+        file_header = streamCtoI(self.file_header_len,file_header_stream)
         self.cache_header_len= getCacheHeaderLenFromFileHeader(file_header) #len in byte
         self.cache_header_len_I = self.cache_header_len/4 #len in int32
-        self.num_cache_headers = getNumberOfCaches(file_header) #number of caches written to the file
         self.num_caches_read=0
         self.cache_data_type = ''
         self.header_len=0 #stream header len
         self.num_frame_headers = 0
         self.frameSize = 0
         self.frameStream = []
+        self.grid_wh=0
 
     def readBinaryFile(self, start_offset): #read cache
+        if start_offset>=self.file_len_bytes:
+            return False
         retVal=True
         try:
             with open(self.filename, 'rb') as f_in:
                 f_in.seek(start_offset)
                 cache_header_stream = f_in.read(self.cache_header_len)
-                cache_header = streamCtoI(self.cache_header_len_I,cache_header_stream)
+                if len(cache_header_stream)<self.cache_header_len:
+                    return False
+                cache_header = streamCtoI(self.cache_header_len,cache_header_stream)
                 self.header_len = getStreamHeaderLen(cache_header)
                 self.num_frame_headers = getNumberHeadersPerCache(cache_header)
                 self.frameSize = getCacheSizeInBytes(cache_header)
                 
                 self.frameStream = f_in.read(self.frameSize)
+                if len(self.frameStream)<self.frameSize:
+                    print(f"Error: frame stream not  found after cache header")
+                    return False
                 self.cache_data_type = getDataTypeCode(cache_header)
                 self.num_caches_read +=1
         except FileNotFoundError:
@@ -228,10 +238,15 @@ class CTrans:
         header_stream = []
         try:
             with open(filename, 'rb') as f_in:
-                header_stream_1st = f_in.read(1)
-                len_of_header = streamCtoI(1,header_stream_1st)
-                self.file_header_len=len_of_header
-                header_stream = f_in.read(self.file_header_len-1)
+                f_in.seek(0,os.SEEK_END)
+                self.file_len_bytes = f_in.tell()
+                if(self.file_len_bytes>1):
+                    f_in.seek(0)
+                    header_stream_1st = f_in.read(4)
+                    len_of_header = streamCtoI(4,header_stream_1st)
+                    self.file_header_len=int(len_of_header[0])
+                    f_in.seek(0)
+                    header_stream = f_in.read(self.file_header_len)
         except FileNotFoundError:
             print(f"Error: could not find file")
             retVal=False
@@ -246,13 +261,17 @@ class CTrans:
 
     def readGridStream(self, stream_in, stream_offset):
         header = self.readHeader(stream_in, stream_offset)
-        data_len = getDataLen(header)
         data = []
+        data_len=0
+        stream_len=0
         if self.cache_data_type=='double':
+            data_len = getDataLen(header,8)
             data = streamCtoD(data_len, stream_in, stream_offset+self.header_len)
         elif self.cache_data_type == 'float':
+            data_len = getDataLen(header,4)
             data = streamCtoF(data_len, stream_in, stream_offset+self.header_len)
-        return header, data
+        stream_len = data_len+self.header_len
+        return header, data, stream_len
 
     def readDStream(self, stream_in, stream_len, stream_offset):
         char_stream_len = 8*stream_len
@@ -264,16 +283,13 @@ class CTrans:
         header_stack=[]
         data_stack=[]
         for header_cnt in range(self.num_frame_headers):
-            header, data = self.readGridStream(self.frameStream, stream_offset)
+            header, data, stream_len = self.readGridStream(self.frameStream, stream_offset)
             header_stack.append(header)
             data_stack.append(data)
-            data_len = getDataLen(header)+self.header_len
-            stream_offset=stream_offset+data_len
+            stream_offset=stream_offset+stream_len
         return header_stack, data_stack, stream_offset
 
     def readFrame(self):
-        if self.num_caches_read>=self.num_cache_headers:
-            return [], [], 0
         if not self.readBinaryFile(self.file_offset):
             return [], [], 0
         header_stack, data_stack, stream_offset = self.readFrameStream()

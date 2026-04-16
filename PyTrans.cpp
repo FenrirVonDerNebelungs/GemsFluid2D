@@ -266,11 +266,7 @@ bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int nu
 		retval = writeFileHeader();
 	return retval;
 }
-bool PyTrans::releaseAndWrite() {
-	bool retVal = writeFileHeader();
-	release();
-	return retVal;
-}
+
 void PyTrans::release() {
 	m_num_caches_written = 0;
 	m_num_grid_headers_cached = 0;
@@ -389,10 +385,10 @@ bool PyTrans::writeFileHeader() {
 	file_header_I[0] = m_file_header_len;
 	file_header_I[1] = m_cache_header_len;
 	file_header_I[2] = m_header_len;
-	file_header_I[3] = m_num_caches_written;
-	file_header_I[4] = (m_max_grid_headers_cached+m_max_image_headers_cached);
-	file_header_I[5] = m_max_grid_headers_cached;
-	file_header_I[6] = m_max_image_headers_cached;
+	file_header_I[3] = 0;// m_num_caches_written;
+	file_header_I[4] = 0;// (m_max_grid_headers_cached + m_max_image_headers_cached);
+	file_header_I[5] = 0; //m_max_grid_headers_cached;
+	file_header_I[6] = 0; //m_max_image_headers_cached;
 	bool retval = n_PyTrans::streamItoC(n_PyTrans::file_header_len, file_header_I, file_header_ch);
 	outF.seekp(0, std::ios::beg);
 	outF.write(file_header_ch, m_file_header_len * sizeof(char));
@@ -459,6 +455,7 @@ bool PyTrans::sendGrid(
 		jacobi_frame, 
 		grid_width, 
 		grid_height, 
+		1,
 		0.f,
 		0.f,
 		ch_stream_offset);

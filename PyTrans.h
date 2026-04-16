@@ -131,7 +131,6 @@ public:
 	~PyTrans();
 
 	bool init(const char* filename=nullptr, int total_stream_len_in_doubles = 0, int num_headers=1, int max_img_size_in_pix=0, int num_images=1);
-	bool releaseAndWrite();
 	void release();
 
 	bool cacheGrid(
