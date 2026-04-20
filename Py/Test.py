@@ -10,6 +10,8 @@ class drawFrame:
     def __init__(self, frame_index):
         self.grid_wh = [0,0]
         self.frame_index=frame_index
+        self.jacobi_max=0.0
+        self.jacobi_err_max =0.0
 
     def updateFrameIndex(self, frame_index):
         self.frame_index = frame_index
@@ -34,17 +36,16 @@ class drawFrame:
         Ux_2D = self.convertTo2D(Ux)
         Uy_2D = self.convertTo2D(Uy)
         Mag = np.sqrt(Ux_2D**2 + Uy_2D**2)
-        plt.figure(figsize=(7,7))
-        plt.quiver(x,y,Ux_2D, Uy_2D, Mag, cmap='viridis')
+        plt.figure(figsize=(12,12))
+        plt.quiver(x,y,Ux_2D, Uy_2D, Mag, angles='xy', scale_units='xy', scale=1, cmap='viridis')
         plt.colorbar(label='Magnitude')
 
         plt.title(graph_title)
-        plt.grid(True)
         plt.axis('equal')
 
         plt.show()
 
-    def draw_scalar(self, p, graph_title, exp_factor=1):
+    def draw_scalar(self, p, graph_title, z_axis=-1, exp_factor=1):
         gwidth = self.grid_wh[0]
         delta=g_delta_x/(float(exp_factor))
         mesh_start = delta/2.0 #inclusive, defaults to zero if not specified
@@ -54,6 +55,8 @@ class drawFrame:
         p_2D = self.convertTo2D(p, exp_factor)
         fig=plt.figure(figsize=(7,7))
         ax=plt.axes(projection='3d')
+        if z_axis > 0:
+            ax.set_zlim(-z_axis, z_axis)
         surf = ax.plot_surface(x,y,p_2D,cmap='coolwarm')
         ax.set_title(graph_title)
         plt.show()
@@ -115,10 +118,8 @@ class drawFrame:
                     DivW = data_stack[i]
                     self.draw_scalar(DivW, 'Div W')
                 case 'jacobi_frame':
-                    frame_i = ct.getJacobiFrame(header)
                     pressure = data_stack[i]
-                    frame_title = 'P jacobi frame: '+ str(frame_i)
-                    self.draw_scalar(pressure, frame_title)
+                    self.jacobi_max = max(abs(p_val) for p_val in pressure)
                 case 'P':
                     pressure = data_stack[i]
                     self.draw_scalar(pressure, label)
@@ -131,6 +132,36 @@ class drawFrame:
                     xxx='unmatched'
             
         return 0
+    
+    def drawJacobi(self, header_stack, data_stack):
+        P_stack = []
+        for i in range(len(header_stack)):
+            header = header_stack[i]
+            label = ct.header2[ct.getDataLabel(header)]
+            jacobi_error = []
+            if label == 'jacobi_frame':
+                frame_i = ct.getJacobiFrame(header)
+                pressure = data_stack[i]
+                frame_title = 'P jacobi frame: '+ str(frame_i)
+                self.draw_scalar(pressure, frame_title, self.jacobi_max)
+                P_stack.append(pressure)
+        err_p_stack = np.array()
+        self.jacobi_err_max=0.0
+        for i in range(1,len(P_stack)):
+            prev_p = np.array(P_stack[i-1])
+            cur_p = np.array(P_stack[i])
+            err_p = cur_p - prev_p
+            np.append(err_p_stack, err_p, axis=0)
+            cur_max = np.max(np.abs(err_p))
+            if cur_max>self.jacobi_err_max:
+                self.jacobi_err_max=cur_max
+        
+        for i in range(len(P_stack)-1):
+            err_p = err_p_stack[i]
+            frame_title = 'P error jacobi frame: '+str(i)
+            self.draw_scalar(err_p, frame_title, self.jacobi_err_max)
+        return 0
+            
 
 class Test:
 

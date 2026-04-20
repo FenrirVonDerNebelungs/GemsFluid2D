@@ -101,7 +101,7 @@ void Test::runTestToPressure(double* Ux[], double* Uy[], double* p[], double* sc
     m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
 	m_pCUDA_wrap->divergence(scratch, Ux[frame_in_index], Uy[frame_in_index]);
 	fill_display_frame(m_scratch, scratch);
-    m_pPyTrans->cacheGrid(m_scratch, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::DivW_code);
+    m_pPyTrans->cacheGrid(m_scratch, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::DivW_code, n_PyTrans::Scalar_code, n_PyTrans::after_force_code);
     static double alpha = -m_pCUDA_wrap->delta_x * m_pCUDA_wrap->delta_x;
     static double rbeta = 0.25;
 	runJacobiTest(p, scratch, p_frame_in_index, alpha, rbeta, Ux[frame_in_index], Uy[frame_in_index]);
@@ -112,8 +112,8 @@ void Test::runTestToPressure(double* Ux[], double* Uy[], double* p[], double* sc
     reverseFrameIndex(frame_in_index);
     fill_display_frame(m_Ux_new, Ux[frame_in_index]);
     fill_display_frame(m_Uy_new, Uy[frame_in_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::end_frame_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::end_frame_code);
+    m_pPyTrans->cacheGrid(m_Ux_new, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::end_frame_code);
+    m_pPyTrans->cacheGrid(m_Uy_new, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::end_frame_code);
     m_pCUDA_wrap->divergence(scratch, Ux[frame_in_index], Uy[frame_in_index]);//this should be zero
     fill_display_frame(m_U_div, scratch);
     m_pPyTrans->cacheGrid(m_U_div, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::DivU_code, n_PyTrans::Scalar_code, n_PyTrans::end_frame_code);
@@ -236,7 +236,7 @@ void Test::runJacobiTest(double* U[], double* b, int frame_index, double alpha, 
     int num_display_frames = 0;
     do {
 		m_pCUDA_wrap->jacobi_frame(U[frame_i.out], U[frame_i.in], b, Wx, Wy, alpha, rbeta);
-        if ( ((num_jacobi_loops+1) % 10) == 0 && num_display_frames<m_num_display_frames) {
+        if ( ((num_jacobi_loops+1) % 40) == 0 && num_display_frames<m_num_display_frames) {
             fill_display_frame(num_display_frames, U[frame_i.out]);
             num_display_frames++;
         }
@@ -556,7 +556,7 @@ void Test::fill_display_frame(int frame_index, const double* dev_data) {
         (m_pCUDA_wrap->grid_width),
         (m_pCUDA_wrap->grid_height),
         m_current_frame,
-        n_PyTrans::P_code,
+        n_PyTrans::jacobi_frame_code,
         n_PyTrans::Scalar_code,
         n_PyTrans::after_force_code,
         frame_index

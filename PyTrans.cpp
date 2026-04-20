@@ -299,7 +299,7 @@ bool PyTrans::cacheGrid(
 	int jacobi_frame
 ) {
 	int new_cache_len = getGridStreamLen(grid_width, grid_height);
-	if ((new_cache_len + m_culmative_stream_len) >= m_culmative_stream_len_max)
+	if ((new_cache_len + m_culmative_stream_len) > m_culmative_stream_len_max)
 		return false;
 	bool retVal = sendGrid(
 		m_culmative_stream, 

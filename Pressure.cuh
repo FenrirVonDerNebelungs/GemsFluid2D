@@ -24,11 +24,11 @@ __global__ void divergence_Core(
     }
     if (j > 0) {
         int index_jminus = getIndex(i, j - 1, grid_width);
-        WB = Wx_in[index_jminus];
+        WB = Wy_in[index_jminus];
     }
     if (j < j_max) {
         int index_jplus = getIndex(i, j + 1, grid_width);
-        WT = Wx_in[index_jplus];
+        WT = Wy_in[index_jplus];
     }
     int center_index = getIndex(i, j, grid_width);
     double dW_dx = inv_2delta_x * (WR - WL);
