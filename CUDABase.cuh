@@ -191,7 +191,7 @@ __global__ void applyForce_Core(
     double delta_t,
     double inv_rsqrd,
     const int grid_width) 
-{/*currently runs over entire frame, this could be reduced*/
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     int center_index = getIndex(i, j, grid_width);
@@ -199,16 +199,57 @@ __global__ void applyForce_Core(
     double x_dist = (double)i - center.x;
     double y_dist = (double)j - center.y;
     double arg = -(x_dist * x_dist + y_dist * y_dist) * inv_rsqrd;
-    if (arg > -4.6) {
-        double force_x = F_c.x * exp(arg);
-        double force_y = F_c.y * exp(arg);
-        double delta_ux = delta_t * force_x;
-        double delta_uy = delta_t * force_y;
-        Ux_out[center_index] = Ux_in[center_index] + delta_ux;
-        Uy_out[center_index] = Uy_in[center_index] + delta_uy;
-    }
-    else {
-        Ux_out[center_index] = Ux_in[center_index];
-        Uy_out[center_index] = Uy_in[center_index];
-    }
+    
+	double exp_arg = exp(arg);
+    double force_x = F_c.x * exp_arg;
+    double force_y = F_c.y * exp_arg;
+    double delta_ux = delta_t * force_x;
+    double delta_uy = delta_t * force_y;
+    Ux_out[center_index] = Ux_in[center_index] + delta_ux;
+    Uy_out[center_index] = Uy_in[center_index] + delta_uy;
+}
+
+__device__ void viscous_diffusion_for_component(
+    double* frame_out,
+    int i,
+    int j,
+    const double* frame_in,
+    double nu/*viscosity constant*/,
+    double inv_delta_Xsqrd,
+    double delta_t,
+    double grid_width,
+    double grid_height)
+{
+    double xL = 0.0, xR = 0.0;
+    double xT = 0.0, xB = 0.0;
+
+    if (i > 0)
+        xL = frame_in[getIndex(i - 1, j, grid_width)];
+    if (i < (grid_width - 1))
+        xR = frame_in[getIndex(i + 1, j, grid_width)];
+    if (j > 0)
+        xB = frame_in[getIndex(i, j - 1, grid_width)];
+    if (j < (grid_height - 1))
+        xT = frame_in[getIndex(i, j + 1, grid_width)];
+
+    double center_val = frame_in[getIndex(i, j, grid_width)];
+    double laplacian = (xL + xR + xT + xB - 4.0 * center_val) * inv_delta_Xsqrd;
+    double new_velocity_component = center_val + nu * laplacian * delta_t;
+    frame_out[getIndex(i, j, grid_width)] = new_velocity_component;
+}
+__global__ void viscous_diffusion_core(
+    double* Ux_out,
+    double* Uy_out,
+    const double* Ux_in,
+    const double* Uy_in,
+    double nu/*viscosity constant*/,
+    double inv_delta_Xsqrd,
+    double delta_t,
+    double grid_width,
+    double grid_height)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    viscous_diffusion_for_component(Ux_out, i, j, Ux_in, nu, inv_delta_Xsqrd, delta_t, grid_width, grid_height);
+    viscous_diffusion_for_component(Uy_out, i, j, Uy_in, nu, inv_delta_Xsqrd, delta_t, grid_width, grid_height);
 }

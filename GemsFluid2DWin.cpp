@@ -5,7 +5,7 @@
 #include "GemsFluid2DWin.h"
 #include "GenImage.h"
 //#include "Fluid2D.h"
-#include "Test.h"
+#include "Test/Test.h"
 
 #define MAX_LOADSTRING 100
 
@@ -110,8 +110,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	s_WH grid_wh = g_pTest->getGridWidthHeight();
     g_pTest->runTest();
     g_pGenImage = g_pTest->getTestImage();//new GenImage(grid_wh.width, grid_wh.height);
-   //double* Ux = g_pTest->getUx();
-   //g_pGenImage->genNormalizedImage(Ux);
    hInst = hInstance; // Store instance handle in our global variable
    s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
    int window_width = blown_grid_wh.width + 6;

@@ -2,7 +2,7 @@
 #ifndef DRAWTEST_H
 #define DRAWTEST_H
 #ifndef GENIMAGE_H
-#include "GenImage.h"
+#include "../GenImage.h"
 #endif
 #include <string>
 

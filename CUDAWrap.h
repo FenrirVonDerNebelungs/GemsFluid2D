@@ -27,6 +27,12 @@ public:
 
 	friend class Test;
 protected:
+
+    double* m_dev_Ux[2];/* 2 frames for in and out, each frame is grid_width*grid_height doubles */
+    double* m_dev_Uy[2];/* 2 frames for in and out, each frame is grid_width*grid_height doubles */
+    double* m_dev_p[2];/* 2 frames for in and out, each frame is grid_width*grid_height doubles */
+    double* m_dev_scratch;
+
     int numBlocks_side;
     int numThreads_side;
     int numBlocks_for_1D;
@@ -44,9 +50,14 @@ protected:
 	int jacobi_minBlocks_side;
 	int jacobi_minThreads_side;
 	int* jacobi_scratch_stack_sizes;
+    int* jacobi_stack_numBlocks;
+	int* jacobi_stack_numThreads;
+    s_WH* jacobi_stack_WH;
     double** jacobi_scratch_stack;
     double* jacobi_scratch;
     double** b_stack;
+    double** Wx_stack;
+    double** Wy_stack;
 
     int runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames);
 
@@ -54,24 +65,20 @@ protected:
 
     void advection(double* Ux[], double* Uy[], int frame_index);
     void advection_backtrace(double* relPos_i, double* relPos_j, /*const*/ double* Ux[], /*const*/ double* Uy[], int frame_index);/* test function */
-    void viscous_diffusion(double* Ux[], double* Uy[], double* scratch, int frame_index);
+    void viscous_diffusion(double* Ux[], double* Uy[], int frame_index);
     void apply_force(double* Ux[], double* Uy[], int frame_index, s_force& force);
     void compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[], int frame_index, int p_frame_index);
 
-    void jacobi_b_stack(const double* b);
-    void jacobi_run_stack(
-        const double* frame_in,
-        const double& alpha,
-        const double& rbeta);
-    void jacobi_base(
-        double* frame_out,
-        const double* frame_in,
+    void jacobi_fill_stacks(
+        const double* frame_in, 
         const double* b,
         const double* Wx,
-        const double* Wy,
-        const double& alpha,
-        const double& rbeta);
+		const double* Wy);
+    void jacobi_send_frame_down_stack(
+        const double* hi_frame, 
+        int hi_frame_width_height, 
+        int lo_stack_index);
 
     void jacobi_frame(
         double* frame_out, 
@@ -80,24 +87,41 @@ protected:
         const double* Wx, 
         const double* Wy, 
         const double& alpha, 
-		const double& rbeta);
-
-
+		const double& rbeta,
+		const int& numBlocks_s,
+		const int& numThreads_s);
 
     void jacobi_loop(
-        double* X[], 
-        double* b, 
-        int frame_index,
+        double* X[], /*frame in is X[0], frame out is also X[0], X[1] in is swap, the pointer X[0] may = the oringinal pointer X[1]*/
+        const double* b, 
         double alpha, 
         double rbeta, 
-        const double* Wx=nullptr, const double* Wy=nullptr);
+        int numBlocks_s,
+		int numThreads_s,
+        const double* Wx=nullptr, 
+        const double* Wy=nullptr);
+    void jacobi_run(
+		double* X[],
+        const double* b,
+        const double* Wx,
+        const double* Wy,
+        int frame_index,
+        const double& alpha,
+        const double& rbeta);
 	void divergence(double* div, const double* Ux, const double* Uy);
 
+	void gradient(double* dp_dx, double* dp_dy, double* p[], int p_frame_index);
 	void bilinearAprox_scaledFrame(double* Ux_scaled, double* Uy_scaled, const double* Ux, const double* Uy, int scale_factor=6);
+	void copyMemory_for_standard_grid(double* dest, const double* src);
 
+    /* init/release  */
+    bool initDevMem(int size);
+	void releaseDevMem();
     /*utility*/
-    int findPow2(int val);
-	bool find_reduced_BlocksNThreads(int& numBlocks_s, int& numThreads_s, int red_factor);
+    int findLog_base2(int val);
+    int find2Pow(int pow);
+	int find_stack_WH_and_redFactor(s_WH& wh, int stack_level, int stack_height);
+	void find_stack_BlocksNThreads(int& numBlocks_s, int& numThreads_s, int reduction_factor);
 };
 
 #endif

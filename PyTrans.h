@@ -25,8 +25,7 @@ namespace n_PyTrans {
 	const int32_t DivW_code = 0x05;
 	const int32_t P_code = 0x06;/*pressure*/
 	const int32_t gradP_code = 0x07;
-	const int32_t jacobi_frame_code = 0x08;
-	const int32_t DivU_code = 0x09;
+	const int32_t DivU_code = 0x08;
 	/* 3rd 32 bits */
 	const int32_t X_code = 0x01;
 	const int32_t Y_code = 0x02;
@@ -38,7 +37,11 @@ namespace n_PyTrans {
 	const int32_t start_frame_code = 0x01;
 	const int32_t after_advection_code = 0x02;
 	const int32_t after_force_code = 0x03;
-	const int32_t end_frame_code = 0x04;
+	const int32_t after_pressure_code = 0x04;
+	const int32_t end_frame_code = 0x05;
+	const int32_t jacobi_stack_fill_code = 0x06;
+	const int32_t jacobi_loop_frame_code = 0x07;
+	const int32_t jacobi_frame_code = 0x08;
 	/*5th 32 bit code 
 		number of loops processed */
 	/*6th 32 bits cnt code
@@ -48,7 +51,7 @@ namespace n_PyTrans {
 	/* 8th 32 bits cnt code
 		grid height */
 	/* 9th 32 bits cnt code*
-		grid_expansion
+		grid_expansion or stack index for jacobi frames
 	*/
 	/* 10th 32 bits code
 		max value in grid or image, used for normalization in python 
@@ -141,7 +144,8 @@ public:
 		int32_t label_code = 0,
 		int32_t axis_code=0,
 		int32_t start_end_code = 0,
-		int jacobi_frame=0
+		int jacobi_frame=0,
+		int jacobi_stack_index = 0
 	);
 	bool cacheImage(
 		const unsigned char img_vals[], /*assumes 3 char per pix input stream size is width*height*3 */
@@ -193,6 +197,7 @@ private:
 		int32_t start_end_code = 0,
 		int number_of_loops = 0,
 		int jacobi_frame = 0,
+		int jacobi_stack_index = 0,	
 		int ch_stream_offset=0,
 		int ch_stream_len = -1);
 	int getGridStreamLen(int grid_width, int grid_height);/*assumes double for grid includes header len*/
@@ -233,7 +238,7 @@ private:
 		int jacobi_frame,
 		int width,
 		int height,
-		int expansion,
+		int stack_index,
 		float max,
 		float min,
 		int ch_stream_offset=0,

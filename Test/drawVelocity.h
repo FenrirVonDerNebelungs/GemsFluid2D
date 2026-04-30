@@ -3,7 +3,7 @@
 #define DRAWVELOCITY_H
 
 #ifndef GENIMAGE_H
-#include "GenImage.h"
+#include "../GenImage.h"
 #endif
 
 class drawVelocity

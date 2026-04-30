@@ -36,6 +36,37 @@ __global__ void divergence_Core(
     frame_out[center_index] = dW_dx + dW_dy;
 }
 
+/*used for test*/
+__global__ void gradient_core(
+    double* Vx,
+    double* Vy,
+    const double* p,
+    double inv_2delta_x,
+    const int grid_width,
+    const int grid_height)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int field_index = getIndex(i, j, grid_width);
+    double px = 0.0;
+    double py = 0.0;
+    if (i < (grid_width - 1) && i>0) {
+        int index_iplus = getIndex(i + 1, j, grid_width);
+        int index_iminus = getIndex(i - 1, j, grid_width);
+        px = (p[index_iplus] - p[index_iminus]) * inv_2delta_x;
+    }
+    else
+        px = 0.0;
+    if (j < (grid_height - 1) && j>0) {
+        int index_jplus = getIndex(i, j + 1, grid_width);
+        int index_jminus = getIndex(i, j - 1, grid_width);
+        py = (p[index_jplus] - p[index_jminus]) * inv_2delta_x;
+    }
+    else
+        py = 0.0;
+    Vx[field_index] = px;
+	Vy[field_index] = py;
+}
 __global__ void subtractGradient(
     double* Ux,
     double* Uy,

@@ -296,7 +296,8 @@ bool PyTrans::cacheGrid(
 	int32_t label_code,
 	int32_t axis_code,
 	int32_t start_end_code,
-	int jacobi_frame
+	int jacobi_frame,
+	int jacobi_stack_index
 ) {
 	int new_cache_len = getGridStreamLen(grid_width, grid_height);
 	if ((new_cache_len + m_culmative_stream_len) > m_culmative_stream_len_max)
@@ -310,7 +311,8 @@ bool PyTrans::cacheGrid(
 		axis_code, 
 		start_end_code, 
 		number_of_loops, 
-		jacobi_frame, 
+		jacobi_frame,
+		jacobi_stack_index,
 		m_culmative_stream_len);
 	m_culmative_stream_len += new_cache_len;
 	m_num_grid_headers_cached++;
@@ -437,6 +439,7 @@ bool PyTrans::sendGrid(
 	int32_t start_end_code, 
 	int number_of_loops, 
 	int jacobi_frame,
+	int jacobi_stack_index,
 	int ch_stream_offset,
 	int ch_stream_len
 ) {
@@ -455,7 +458,7 @@ bool PyTrans::sendGrid(
 		jacobi_frame, 
 		grid_width, 
 		grid_height, 
-		1,
+		jacobi_stack_index,
 		0.f,
 		0.f,
 		ch_stream_offset);
@@ -542,7 +545,7 @@ bool PyTrans::sendHeader(
 	int jacobi_frame,
 	int width,
 	int height,
-	int expansion,
+	int stack_index,
 	float max,
 	float min,
 	int ch_stream_offset,
@@ -560,7 +563,7 @@ bool PyTrans::sendHeader(
 	header_I_stream[5] = (int32_t)jacobi_frame;
 	header_I_stream[6] = (int32_t)width;
 	header_I_stream[7] = (int32_t)height;
-	header_I_stream[8] = (int32_t)expansion;
+	header_I_stream[8] = (int32_t)stack_index;
 	header_I_stream[9] = n_PyTrans::Fti(max);
 	header_I_stream[10] = n_PyTrans::Fti(min);
 	return n_PyTrans::streamItoC(PYTRANS_NUMHEADER_FIELDS, header_I_stream, ch_stream, ch_stream_offset);

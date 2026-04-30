@@ -1,8 +1,8 @@
 #include "Pressure.cuh"
 
 __device__ int getReducedIndex(const int i, const int j, const int r_grid_width) {
-	int reduction_i = floor(i / 2);
-	int reduction_j = floor(j / 2);
+	int reduction_i = i / 2;
+	int reduction_j = j / 2;
     return reduction_j * r_grid_width + reduction_i;
 }
 __device__ int getExpandedIndex(const int r_i, const int r_j, const int offset_i, const int offset_j, const int grid_width) {
@@ -40,15 +40,17 @@ __device__ void Xgrid_reduction(
 }
 /*r_grid must be 1/2 width and 1/2 height of grid
 * blocks/threads run over REDUCED grid */
-__global__ void Xgrid_reduction_x3(
+__global__ void Xgrid_reduction_x4(
     double* r_grid1,
 	double* r_grid2,
 	double* r_grid3,
+	double* r_grid4,
     const int r_grid_width, 
     const int r_grid_height, 
     const double* grid1,
     const double* grid2,
 	const double* grid3,
+	const double* grid4,
     const int grid_width, 
     const int grid_height)
 {
@@ -65,10 +67,77 @@ __global__ void Xgrid_reduction_x3(
 	Xgrid_reduction(r_grid1, r_index, grid1, i_center, i_L, i_R, i_B, i_T);
 	Xgrid_reduction(r_grid2, r_index, grid2, i_center, i_L, i_R, i_B, i_T);
 	Xgrid_reduction(r_grid3, r_index, grid3, i_center, i_L, i_R, i_B, i_T);
+	Xgrid_reduction(r_grid4, r_index, grid4, i_center, i_L, i_R, i_B, i_T);
+}
+/*grid must be 2width and 2height of r_grid
+* blocks/threads are run over expanded grid*/
+__global__ void Xgrid_expansion(double* grid, const int grid_width, const int grid_height, const double* r_grid, const int r_grid_width, const int r_grid_height)
+{ 
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    double div_cnt_I = 1.0;
+    double div_cnt_J = 1.0;
+    /* i=2I+1
+     * j=2J+1 */
+	int _I = (i - 1) / 2;
+	int _J = (j - 1) / 2;
+    int r_I = _I;
+    int r_J = _J;
+    int r_I_lo = -1, r_I_hi = -1;
+	int r_J_lo = -1, r_J_hi = -1;
+    if ((i - 1) % 2 == 0) {
+        r_I = _I;
+    }
+    else {
+        if (i > 0 && i < (grid_width - 1)) {
+            r_I_lo = _I;
+			r_I_hi = _I + 1;
+            div_cnt_I+=1.0;
+        }
+        else {
+            r_I = _I;
+        }
+    }
+    if ((j - 1) % 2 == 0) {
+        r_J = _J;
+    }
+    else {
+        if (j > 0 && j < (grid_height - 1)) {
+			r_J_lo = _J;
+            r_J_hi = _J + 1;
+            div_cnt_J+=1.0;
+        }
+        else {
+            r_J = _J;
+        }
+    }
+    double div_cnt = div_cnt_I * div_cnt_J;
+    double val_sum = 0.0;
+    if (div_cnt < 1.1) {
+		val_sum = r_grid[getIndex(r_I, r_J, r_grid_width)];
+    }
+    else if (div_cnt < 2.1) {
+        if (r_I_lo >= 0) {
+			val_sum += r_grid[getIndex(r_I_lo, r_J, r_grid_width)];
+			val_sum += r_grid[getIndex(r_I_hi, r_J, r_grid_width)];
+        }
+        else {
+			val_sum += r_grid[getIndex(r_I, r_J_lo, r_grid_width)]; 
+			val_sum += r_grid[getIndex(r_I, r_J_hi, r_grid_width)];
+        }
+    }
+    else {
+        val_sum += r_grid[getIndex(r_I_lo, r_J_lo, r_grid_width)];
+        val_sum += r_grid[getIndex(r_I_lo, r_J_hi, r_grid_width)];
+        val_sum += r_grid[getIndex(r_I_hi, r_J_lo, r_grid_width)];
+		val_sum += r_grid[getIndex(r_I_hi, r_J_hi, r_grid_width)];
+    }
+	grid[getIndex(i, j, grid_width)] = val_sum / div_cnt;
 }
 /*grid must be 2*width and 2*height of r_grid
-* blocks/threads run over REDUCED grid */
-__global__ void Xgrid_expansion(double* grid, const int grid_width, const int grid_height, const double* r_grid, const int r_grid_width, const int r_grid_height)
+* blocks/threads run over REDUCED grid 
+* should give same results as above */
+__global__ void Xgrid_expansion_from_reduced(double* grid, const int grid_width, const int grid_height, const double* r_grid, const int r_grid_width, const int r_grid_height)
 {
     int r_i = blockIdx.x * blockDim.x + threadIdx.x;
     int r_j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -223,7 +292,8 @@ __device__ void jacobi_boundary_pressure_setVal(
 __device__ void jacobi_boundary_pressure_doSide(
     double* frame_out,
     const double* frame_in,
-    const double* W_in,
+    const double* Wx_in,
+	const double* Wy_in,
     const double * b_in,
     int i,
     int iL,
@@ -244,7 +314,9 @@ __device__ void jacobi_boundary_pressure_doSide(
     double xT = 0.0, xB = 0.0;
     double g = 0.0;
     int g_index = 0;
-    double g_mult_constant = 2.0 * delta_x;
+	const double g_mult_constant = 2.0*delta_x;
+    double g_mult_constant_x = 0.0;
+    double g_mult_constant_y = 0.0;
     if(jB>=0)
         xB = frame_in[getIndex(i, jB, grid_width)];
     if(jT>=0)
@@ -256,23 +328,25 @@ __device__ void jacobi_boundary_pressure_doSide(
 
     if(jB<0){
         g_index = getIndex(i, 0, grid_width);
+		g_mult_constant_y = g_mult_constant;
         xB = xT;
     }
     if(jT<0){
         g_index = getIndex(i, j_max, grid_width);
-        g_mult_constant = -g_mult_constant;
+        g_mult_constant_y = -g_mult_constant;
         xT = xB;
     }
     if(iL<0){
         g_index = getIndex(0, j, grid_width);
+		g_mult_constant_x = g_mult_constant;
         xL = xR;
     }
     if(iR<0){
         g_index = getIndex(i_max, j, grid_width);
-        g_mult_constant = -g_mult_constant;
+        g_mult_constant_x = -g_mult_constant;
         xR = xL;
     }
-    g = g_mult_constant * W_in[g_index];
+    g = g_mult_constant_x * Wx_in[g_index] + g_mult_constant_y*Wy_in[g_index];
     jacobi_boundary_pressure_setVal(frame_out, b_in, i, j, xL, xR, xB, xT, g, alpha, rbeta, grid_width);
 }
 __global__ void jacobi_boundary_pressure(
@@ -291,36 +365,51 @@ __global__ void jacobi_boundary_pressure(
     int i = 0, j = 0;
     int iL = 0, iR = 0;
     int jB = 0, jT = 0;
-    /** use k as j and run along x=0 and x=max **/
-    if (k > 0 && k < (grid_height - 1)) {
+    
+    if (k < (grid_width - 1)) {
         j = k;
         jB = j - 1;
         jT = j + 1;
-        /* go along i=1 */
+        /* go up i=0 */
         i = 0;
         iR = i + 1;
         iL = -1;
-        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
-        /* go along i=i_max-1 */
+        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+        /* go up i=i_max-1 */
         i = grid_width - 1;
         iR = -1;
         iL = i - 1;
-        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
-    //}
-    /** use k as i and run along y=0 and y=max **/
-    //if (k > 0 && k < (grid_width - 1)) {
+        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+
         i = k;
         iL = i - 1;
         iR = i + 1;
-        /* go along j=1 */
+        /* go along j=0 */
         j = 0;
         jT = j + 1;
         jB = -1;
-        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
         /* go along j=j_max-1 */
         j = grid_height - 1;
         jT = -1;
         jB = j - 1;
-        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+    }
+    else {
+        j = grid_height - 1;
+        jB = j - 1;
+        jT = -1;
+        i = 0;
+        iR = i + 1;
+		iL = -1;
+        jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+		i = grid_width - 1;
+        iR = -1;
+        iL = i - 1;
+		jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
+        j = 0;
+		jT = j + 1;
+        jB = -1;
+		jacobi_boundary_pressure_doSide(frame_out, frame_in, Wx_in, Wy_in, b_in, i, iL, iR, j, jT, jB, alpha, rbeta, delta_x, grid_width, grid_height);
     }
 }
