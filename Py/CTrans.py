@@ -19,17 +19,16 @@ header2 = {
     0x05: 'DivW',
     0x06: 'P',
     0x07: 'gradP',
-    0x08: 'jacobi_frame',
-    0x09: 'DivU'
+    0x08: 'DivU',
+    0x09: 'LapP'
 }
 #3rd 32 bits
 header3 = {
     0x00: 'Scalar',
     0x01: 'X',
     0x02: 'Y',
-    0x03: 'Scalar',
-    0x04: 'X_exp',
-    0x05: 'Y_exp'
+    0x03: 'X_exp',
+    0x04: 'Y_exp'
     }
 #4th 32 bits
 header4 = {
@@ -37,7 +36,13 @@ header4 = {
     0x01 : 'start_frame',
     0x02: 'after_advection',
     0x03: 'after_force',
-    0x04: 'end_frame'
+    0x04: 'after_pressure',
+    0x05: 'end_frame',
+    0x06: 'jacobi_stack_fill',
+    0x07: 'jacobi_loop',
+    0x08: 'jacobi_frame',
+    0x09: 'jacobi_senddown',
+    0x0A: 'after_jacobi'
     }
 
 cache_header = {
@@ -76,10 +81,16 @@ def getDataAxis(header):
 def getDataStartEndCode(header):
     return header[3]
 
+def getLoopsRun(header):
+    return header[4]
+
 def getJacobiFrame(header):
     return header[5]
 
 def getExpansionFactor( header):
+    return header[8]
+
+def getJacobiStackI(header):
     return header[8]
 
 #file header
@@ -286,14 +297,15 @@ class CTrans:
             header, data, stream_len = self.readGridStream(self.frameStream, stream_offset)
             header_stack.append(header)
             data_stack.append(data)
-            stream_offset=stream_offset+stream_len
+            stream_offset+=stream_len
         return header_stack, data_stack, stream_offset
 
     def readFrame(self):
         if not self.readBinaryFile(self.file_offset):
             return [], [], 0
+        new_file_offset = self.file_offset + self.cache_header_len
         header_stack, data_stack, stream_offset = self.readFrameStream()
-        new_file_offset = self.file_offset + self.cache_header_len + self.frameSize
+        new_file_offset += stream_offset
         self.file_offset = new_file_offset
         return header_stack, data_stack, new_file_offset
 

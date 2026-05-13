@@ -3,9 +3,11 @@
 Fluid2D::Fluid2D(
 	int blocks_side_dim,
 	int threads_side_dim,
-	int sim_frames
+	int sim_frames,
+	int filter_sigma
 ) : 
-	m_cuda_wrap(blocks_side_dim, threads_side_dim), 
+	m_CUDA_wrap(blocks_side_dim, threads_side_dim),
+	m_filter(filter_sigma),
 	m_frame_cnt(0),
 	m_blocks_side_dim(blocks_side_dim), 
 	m_threads_side_dim(threads_side_dim), 
@@ -37,7 +39,9 @@ Fluid2D::~Fluid2D() {
 
 int Fluid2D::launchCUDA() {
 	s_force force = m_fluid_animate.getForce(m_frame_cnt);
-	int launchOK = m_cuda_wrap.runCUDA(m_Ux, m_Uy, m_p, force, m_sim_frames);
+	double jacobi_filter[g_jacobi_filter_size];
+	m_filter.genFilter(jacobi_filter, BASE_JACOBI_EXPANSION_FILTER_HALF_WH);
+	int launchOK = m_CUDA_wrap.runCUDA(m_Ux, m_Uy, m_p, force, m_sim_frames, jacobi_filter);
 	if(launchOK==0)
 		m_frame_cnt += m_sim_frames;
 	return launchOK;

@@ -48,8 +48,10 @@ __global__ void advection_backtrace_Core( /*test function returns backtraced cel
     double2 U_in = make_double2(Ux_in[center_index], Uy_in[center_index]);
     double2 relPos = getRelBackTracedPosition(U_in, delta_t, delta_x);
 
-    s_four_corners relCorners = getRelFourCorners(relPos);
-    s_four_corners corners = addCornersTo_ij(i, j, relCorners);
+	int4 relCorners = make_int4(0, 0, 0, 0);
+    getRelFourCorners(relPos, &relCorners);
+	int4 corners = make_int4(0, 0, 0, 0);
+    addCornersTo_ij(i, j, &relCorners, &corners);
     x_out[center_index] = relPos.x;
     y_out[center_index] = relPos.y;
 }

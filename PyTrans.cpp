@@ -200,6 +200,7 @@ bool n_PyTrans::streamCtoD(int len, const char chs[], double Fs[], int char_offs
 	return true;
 }
 PyTrans::PyTrans() :
+	m_total_file_len(0),
 	m_num_caches_written(0),
 	m_num_grid_headers_cached(0),
 	m_num_image_headers_cached(0),
@@ -223,6 +224,7 @@ PyTrans::~PyTrans() {
 	;
 }
 bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int num_headers, int max_img_size_in_pix, int num_images) {
+	m_total_file_len = 0;
 	bool retval = true;
 	if (filename != nullptr)
 		strcpy_s(m_filename, filename);
@@ -394,6 +396,7 @@ bool PyTrans::writeFileHeader() {
 	bool retval = n_PyTrans::streamItoC(n_PyTrans::file_header_len, file_header_I, file_header_ch);
 	outF.seekp(0, std::ios::beg);
 	outF.write(file_header_ch, m_file_header_len * sizeof(char));
+	m_total_file_len += (m_file_header_len * sizeof(char));
 	outF.close();
 	delete[] file_header_ch;
 	return true;
@@ -408,12 +411,17 @@ bool PyTrans::writeBinary() {
 	if (!outF.is_open()) {
 		return false;
 	}
-	if(m_cache_header_len>0)
+	if (m_cache_header_len > 0) {
 		outF.write(m_cache_header, m_cache_header_len * sizeof(char));
-	if (m_culmative_stream_len > 0)
+		m_total_file_len += (m_cache_header_len * sizeof(char));
+	}
+	if (m_culmative_stream_len > 0) {
 		outF.write(m_culmative_stream, m_culmative_stream_len * sizeof(char));
-	if (m_image_stream_len > 0)
+		m_total_file_len += (m_culmative_stream_len * sizeof(char));
+	}if (m_image_stream_len > 0) {
 		outF.write(m_image_stream, m_image_stream_len * sizeof(char));
+		m_total_file_len += (m_image_stream_len * sizeof(char));
+	}
 	outF.close();
 	m_num_caches_written++;
 	return true;

@@ -6,6 +6,10 @@
 #include <cmath>
 #include <algorithm> /* needed for std::max */
 #include <cstring>
+
+#define BASE_JACOBI_EXPANSION_FILTER_HALF_WH 2
+const int g_jacobi_filter_size = BASE_JACOBI_EXPANSION_FILTER_HALF_WH * BASE_JACOBI_EXPANSION_FILTER_HALF_WH * 4;
+
 struct s_WH {
 	int width;
 	int height;
@@ -19,12 +23,13 @@ struct s_jacobi_vars {
     double beta;
     double rbeta;
 };
+/*
 struct s_four_corners {
     int i1;
     int i2;
     int j1;
     int j2;
-};
+};*/
 struct s_force {
     int i;
     int j;

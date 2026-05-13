@@ -17,11 +17,11 @@ public:
         double in_nu = 1.0,
         int jacobi_minBlocks_side_dim=2, /*must be such that 2^some power * minBlocks_side dim = blocks_side_dim */
 		int jacobi_minThreads_side_dim = 4, /*must be such that 2^some power * minThreads_side dim = threads_side_dim */
-        int in_max_jacobi_loops = 400
+        int in_max_jacobi_loops = 200
     );
     ~CUDAWrap();
 
-    int runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames);
+    int runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames, double jacobi_filter[]);
 
 	s_WH getGridWidthHeight() { s_WH wh; wh.width = grid_width; wh.height = grid_height; return wh; }
 
@@ -32,6 +32,8 @@ protected:
     double* m_dev_Uy[2];/* 2 frames for in and out, each frame is grid_width*grid_height doubles */
     double* m_dev_p[2];/* 2 frames for in and out, each frame is grid_width*grid_height doubles */
     double* m_dev_scratch;
+
+    double* m_filter;
 
     int numBlocks_side;
     int numThreads_side;
@@ -58,8 +60,11 @@ protected:
     double** b_stack;
     double** Wx_stack;
     double** Wy_stack;
+    double* jacobi_alpha;
+	double  jacobi_rbeta;
+    double* jacobi_delta_x;
 
-    int runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames);
+    int runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames, double jacobi_filter[]);
 
 	void runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force);
 
@@ -105,17 +110,16 @@ protected:
         const double* b,
         const double* Wx,
         const double* Wy,
-        int frame_index,
-        const double& alpha,
-        const double& rbeta);
+        int frame_index);
 	void divergence(double* div, const double* Ux, const double* Uy);
 
 	void gradient(double* dp_dx, double* dp_dy, double* p[], int p_frame_index);
+    void laplacian(double* lap, double* p[], double* scratch_x, double* scratch_y, int p_frame_index);
 	void bilinearAprox_scaledFrame(double* Ux_scaled, double* Uy_scaled, const double* Ux, const double* Uy, int scale_factor=6);
 	void copyMemory_for_standard_grid(double* dest, const double* src);
 
     /* init/release  */
-    bool initDevMem(int size);
+    bool initDevMem(int size, double jacobi_filter[]);
 	void releaseDevMem();
     /*utility*/
     int findLog_base2(int val);

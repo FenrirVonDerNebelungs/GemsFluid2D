@@ -18,7 +18,8 @@ CUDAWrap::CUDAWrap(
     nu(in_nu),
 	jacobi_minBlocks_side(jacobi_minBlocks_side_dim),
 	jacobi_minThreads_side(jacobi_minThreads_side_dim),
-    max_jacobi_loops(in_max_jacobi_loops)
+    max_jacobi_loops(in_max_jacobi_loops), 
+    jacobi_rbeta(0.25)
 {
     for(int i=0; i<2; i++){
         m_dev_Ux[i] = nullptr;
@@ -26,6 +27,7 @@ CUDAWrap::CUDAWrap(
         m_dev_p[i] = nullptr;
 	}
 	m_dev_scratch = nullptr;
+    m_filter = nullptr;
 
     numBlocks_for_1D = blocks_side_dim * blocks_side_dim;
 	numThreads_for_1D = threads_side_dim * threads_side_dim;
@@ -48,6 +50,8 @@ CUDAWrap::CUDAWrap(
 	b_stack = nullptr;
 	Wx_stack = nullptr;
 	Wy_stack = nullptr;
+	jacobi_alpha = nullptr;
+	jacobi_delta_x = nullptr;
     if (jacobi_stack_height > 0) {
 		jacobi_scratch_stack_sizes = new int[jacobi_stack_height];
 		jacobi_stack_numBlocks = new int[jacobi_stack_height];
@@ -57,9 +61,13 @@ CUDAWrap::CUDAWrap(
 		b_stack = new double* [jacobi_stack_height];
         Wx_stack = new double* [jacobi_stack_height];
         Wy_stack = new double* [jacobi_stack_height];
+        jacobi_alpha = new double[jacobi_stack_height];
+        jacobi_delta_x = new double[jacobi_stack_height];
         for (int i = 0; i < jacobi_stack_height; i++) {
             int reduction_factor = find_stack_WH_and_redFactor(jacobi_stack_WH[i], i, jacobi_stack_height);
             find_stack_BlocksNThreads(jacobi_stack_numBlocks[i], jacobi_stack_numThreads[i], reduction_factor);
+			jacobi_delta_x[i] = delta_x * reduction_factor;
+			jacobi_alpha[i] = -jacobi_delta_x[i] * jacobi_delta_x[i];
         }
        
         for(int i=0; i<jacobi_stack_height; i++) {
@@ -73,6 +81,12 @@ CUDAWrap::CUDAWrap(
     }
 }
 CUDAWrap::~CUDAWrap() {
+    if(jacobi_delta_x != nullptr) {
+        delete[] jacobi_delta_x;
+	}
+    if(jacobi_alpha != nullptr) {
+        delete[] jacobi_alpha;
+	}
     if (jacobi_scratch_stack != nullptr) {
 		delete[] jacobi_scratch_stack;
     }
@@ -170,9 +184,9 @@ void CUDAWrap::viscous_diffusion(double* Ux[], double* Uy[], int frame_index) {
 void CUDAWrap::compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index) {
 	divergence(scratch, Ux[frame_index], Uy[frame_index]);
     /* jacobi with \alpha = -\deltax^2 and b = \frac{1}{\deltat} \nabla \cdot \vec{u} and \beta = 4 */
-    static double alpha = -delta_x * delta_x;
-    static double rbeta = 0.25;
-    jacobi_run(p, scratch, Ux[frame_index], Uy[frame_index], p_frame_index, alpha, rbeta);
+    //static double alpha = -delta_x * delta_x;
+    //static double rbeta = 0.25;
+    jacobi_run(p, scratch, Ux[frame_index], Uy[frame_index], p_frame_index);
 }
 void CUDAWrap::gradient(double* dp_dx, double* dp_dy, double* p[], int p_frame_index) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
@@ -186,6 +200,14 @@ void CUDAWrap::gradient(double* dp_dx, double* dp_dy, double* p[], int p_frame_i
         inv_2delta_x,
         grid_width,
         grid_height);
+	cudaError_t cudaStatus = cudaDeviceSynchronize();
+}
+void CUDAWrap::laplacian(double* lap, double* p[], double* scratch_x, double* scratch_y, int p_frame_index) {
+    gradient(scratch_x, scratch_y, p, p_frame_index);
+	dim3 numBlocks(numBlocks_side, numBlocks_side);
+	dim3 numThreads(numThreads_side, numThreads_side);
+    static double inv_2delta_x = 1.0 / (2.0 * delta_x);
+	divergence_Core << <numBlocks, numThreads >> > (lap, scratch_x, scratch_y, inv_2delta_x, grid_width, grid_height);
 	cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
 void CUDAWrap::subtract_pressure_gradient(double* Ux[], double* Uy[], double* p[], int frame_index, int p_frame_index) {
@@ -237,7 +259,8 @@ void CUDAWrap::jacobi_fill_stacks(const double* frame_in, const double* b, const
 			Wx_stack[stack_base_i],
 			Wy_stack[stack_base_i],
             base_grid_width,
-            base_grid_height);
+            base_grid_height,
+            m_filter);
         cudaError_t cudaStatus = cudaDeviceSynchronize();
         base_grid_width /= 2;
         base_grid_height /= 2;
@@ -248,14 +271,14 @@ void CUDAWrap::jacobi_send_frame_down_stack(const double* hi_frame, int hi_frame
     int numThreads_s = jacobi_stack_numThreads[lo_stack_index];
     dim3 numBlocks(numBlocks_s, numBlocks_s);
     dim3 numThreads(numThreads_s, numThreads_s);
-	int red_grid_width_height = numThreads_s * numBlocks_s;
+	int lo_grid_width_height = numThreads_s * numBlocks_s;
     Xgrid_expansion << <numBlocks, numThreads >> > (
         jacobi_scratch_stack[lo_stack_index], 
-        hi_frame_width_height, 
-        hi_frame_width_height, 
+        lo_grid_width_height, 
+        lo_grid_width_height, 
         hi_frame,
-        red_grid_width_height,
-        red_grid_width_height);
+        hi_frame_width_height,
+        hi_frame_width_height);
 	cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
  
@@ -273,10 +296,11 @@ void CUDAWrap::jacobi_frame(
     cudaError_t cudaStatus = cudaSuccess;
 	dim3 numBlocks(numBlocks_s, numBlocks_s);
 	dim3 numThreads(numThreads_s, numThreads_s);
-    jacobi << <numBlocks, numThreads >> > (frame_out, frame_in, b, alpha, rbeta, grid_width, grid_height);
+    int frame_wh = numBlocks_s * numThreads_s;
+    jacobi << <numBlocks, numThreads >> > (frame_out, frame_in, b, alpha, rbeta, frame_wh, frame_wh);
     cudaStatus = cudaDeviceSynchronize();
     if (Wx != nullptr)
-        jacobi_boundary_pressure << <numBlocks_side, numThreads_side >> > (frame_out, Wx, Wy, frame_in, b, alpha, rbeta, delta_x, grid_width, grid_height);
+        jacobi_boundary_pressure << <numBlocks_side, numThreads_side >> > (frame_out, Wx, Wy, frame_in, b, alpha, rbeta, delta_x, frame_wh, frame_wh);
     cudaStatus = cudaDeviceSynchronize();
 }
 
@@ -304,26 +328,27 @@ void CUDAWrap::jacobi_run(
     const double* b,
     const double* Wx,
     const double* Wy,
-    int frame_index,
-    const double& alpha,
-    const double& rbeta)
+    int frame_index)
 {
     s_frame_index frame_i = getFrameIndex(frame_index);
 	int original_frame_in_index = frame_i.in;
     if (jacobi_stack_height > 0) {
         jacobi_fill_stacks(X[frame_i.in], b, Wx, Wy);
-		int jacobi_stack_max_index = jacobi_stack_height - 1;
-        for(int i_stack=0; i_stack<jacobi_stack_max_index; i_stack++) {
-            double* frame_swap_ptrs[] = { jacobi_scratch_stack[i_stack], jacobi_scratch};
-			int numBlocks_s = jacobi_stack_numBlocks[i_stack];
-			int numThreads_s = jacobi_stack_numThreads[i_stack];
-			jacobi_loop(frame_swap_ptrs, b_stack[i_stack], alpha, rbeta, numBlocks_s, numThreads_s, Wx_stack[i_stack], Wy_stack[i_stack]);
-			int frame_width_height = numBlocks_s * numThreads_s;
-			jacobi_send_frame_down_stack(frame_swap_ptrs[0], frame_width_height, i_stack + 1);
-		}
+        int jacobi_stack_max_index = jacobi_stack_height - 1;
+        for (int i_stack = 0; i_stack < jacobi_stack_max_index; i_stack++) {
+            double* frame_swap_ptrs[] = { jacobi_scratch_stack[i_stack], jacobi_scratch };
+            int numBlocks_s = jacobi_stack_numBlocks[i_stack];
+            int numThreads_s = jacobi_stack_numThreads[i_stack];
+            double alpha = jacobi_alpha[i_stack];
+            jacobi_loop(frame_swap_ptrs, b_stack[i_stack], alpha, jacobi_rbeta, numBlocks_s, numThreads_s, Wx_stack[i_stack], Wy_stack[i_stack]);
+            s_WH wh = jacobi_stack_WH[i_stack];
+            int frame_width_height = wh.width;
+            jacobi_send_frame_down_stack(frame_swap_ptrs[0], frame_width_height, i_stack + 1);
+        }
         copyMemory_for_standard_grid(X[0], jacobi_scratch_stack[jacobi_stack_max_index]);
     }
-	jacobi_loop(X, b, alpha, rbeta, numBlocks_side, numThreads_side, Wx, Wy);/* results are in X[0]*/
+    static const double alpha_base = -delta_x * delta_x;
+	jacobi_loop(X, b, alpha_base, jacobi_rbeta, numBlocks_side, numThreads_side, Wx, Wy);/* results are in X[0]*/
     frame_i.in = 1;
     frame_i.out = 0;
 	fixFramePointers(X, frame_i, original_frame_in_index);/*results are in original frame out index */
@@ -376,10 +401,10 @@ void CUDAWrap::copyMemory_for_standard_grid(double* copy, const double* orig) {
 	cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
 
-int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames) {
+int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames, double jacobi_filter[]) {
     unsigned int size = grid_width * grid_height;
     cudaError_t cudaStatus = cudaSuccess;
-    if(initDevMem(size))
+    if(initDevMem(size, jacobi_filter))
 		cudaStatus = cudaSuccess;
     if (cudaStatus != cudaSuccess)
         fprintf(stderr, "cudaMalloc failed!");
@@ -418,11 +443,11 @@ int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, s_force& force, in
 	return 0;
 }
 
-int CUDAWrap::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames) {
-    return runNV(Ux, Uy, pressure, force, sim_frames);
+int CUDAWrap::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames, double jacobi_filter[]) {
+    return runNV(Ux, Uy, pressure, force, sim_frames, jacobi_filter);
 }
 
-bool CUDAWrap::initDevMem(int size) {
+bool CUDAWrap::initDevMem(int size, double jacobi_filter[]) {
     cudaError_t cudaStatus = cudaSuccess;
     for (int i = 0; i < 2; i++) {
         m_dev_Ux[i] = 0;
@@ -463,6 +488,10 @@ bool CUDAWrap::initDevMem(int size) {
     jacobi_scratch = 0;
     if (cudaStatus == cudaSuccess)
         cudaStatus = cudaMalloc((void**)&jacobi_scratch, size * sizeof(double));
+    if (cudaStatus == cudaSuccess)
+        cudaStatus = cudaMalloc((void**)&m_filter, g_jacobi_filter_size * sizeof(double));
+    if (cudaStatus == cudaSuccess)
+        cudaStatus = cudaMemcpy(m_filter, jacobi_filter, g_jacobi_filter_size * sizeof(double), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
         return false;
     return true;

@@ -22,27 +22,29 @@ __device__ bool inInteriorSlab_ij(const int i, const int j, const int grid_width
         return false;
     return true;
 }
-__device__ bool inRange_corners(const s_four_corners& corners, int grid_width, int grid_height) {
-    return corners.i1 >= 0 && corners.i2 < grid_width && corners.j1 >= 0 && corners.j2 < grid_height;
+__device__ bool inRange_corners(const int4* corners, int grid_width, int grid_height) {
+    if(corners->x==corners->z || corners->y==corners->w)
+		return false;
+    return corners->x >= 0 && corners->z < grid_width && corners->y >= 0 && corners->w < grid_height;
 }
-__device__ s_four_corners add(const s_four_corners& corners1, const s_four_corners& corners2) {
-    s_four_corners corners = { corners1.i1 + corners2.i1, corners1.i2 + corners2.i2, corners1.j1 + corners2.j1, corners1.j2 + corners2.j2 };
-    return corners;
+__device__ void add(const int4* corners1, const int4* corners2, int4* result) {
+    result->x = corners1->x + corners2->x;
+    result->z = corners1->z + corners2->z;
+    result->y = corners1->y + corners2->y;
+    result->w = corners1->w + corners2->w;
 }
-__device__ s_four_corners addCornersTo_ij(int i, int j, const s_four_corners& relCorners) {
-    s_four_corners indexes_to_add = { i, i, j, j };
-    s_four_corners corners = add(indexes_to_add, relCorners);
-    return corners;
+__device__ void addCornersTo_ij(int i, int j, const int4* relCorners, int4* result) {
+    int4 indexes_to_add = make_int4( i, j, i, j ); /* x, y, z, w*/
+    add(&indexes_to_add, relCorners, result);
 }
-__device__ s_four_corners getRelFourCorners(
-    const double2& relPos
+__device__ void getRelFourCorners(
+    const double2& relPos,
+    int4* result
 ) {
-    s_four_corners corners;
-    corners.i1 = (int)std::floor(relPos.x);
-    corners.i2 = (int)std::ceil(relPos.x);
-    corners.j1 = (int)std::floor(relPos.y);
-    corners.j2 = (int)std::ceil(relPos.y);
-    return corners;
+    result->x = (int)std::floor(relPos.x);
+    result->z = (int)std::ceil(relPos.x);
+    result->y = (int)std::floor(relPos.y);
+    result->w = (int)std::ceil(relPos.y);
 }
 __device__ double bilinearAprox_Quad(
     const double dist_to_x1, 
@@ -67,24 +69,27 @@ __device__ bool bilinearAprox_Core(
     const int grid_width, 
 	const int grid_height
 ) {
-	s_four_corners relCorners = getRelFourCorners(relPos);
-	s_four_corners corners = addCornersTo_ij(i_pos, j_pos, relCorners);
+	int4 relCorners = make_int4(0, 0, 0, 0);
+	getRelFourCorners(relPos,&relCorners);
+	int4 corners = make_int4(0, 0, 0, 0);
+    addCornersTo_ij(i_pos, j_pos, &relCorners, &corners);
 
-    double dist_to_x1 = relPos.x - (double)relCorners.i1;
-    double dist_to_x2 = (double)relCorners.i2 - relPos.x;
-    double dist_to_y1 = relPos.y - (double)relCorners.j1;
-    double dist_to_y2 = (double)relCorners.j2 - relPos.y;
+    /*x is i1, z is i2, y is j1, w is j2*/
+    double dist_to_x1 = relPos.x - (double)relCorners.x;
+    double dist_to_x2 = (double)relCorners.z - relPos.x;
+    double dist_to_y1 = relPos.y - (double)relCorners.y;
+    double dist_to_y2 = (double)relCorners.w - relPos.y;
 
     double Ux_11 = 0.0, Ux_21 = 0.0, Ux_12 = 0.0, Ux_22 = 0.0;
     double Uy_11 = 0.0, Uy_21 = 0.0, Uy_12 = 0.0, Uy_22 = 0.0;
-    if (inRange_corners(corners, grid_width, grid_height)) {
+    if (inRange_corners(&corners, grid_width, grid_height)) {
         /* frac{1}{(x_2 - x_1)(y_2-y_1)} ((x_2-x)(y_2-y)Q_{11} + (x-x_1)(y_2-y)Q_{21} + (x_2-x)(y-y_1)Q_{12} + (x-x_1)(y-y_1)Q_{22} */
         /* (y_2-y_1)=(x_2-x_1)=delta_x*/
 
-        int index_11 = getIndex(corners.i1, corners.j1, grid_width);
-        int index_12 = getIndex(corners.i1, corners.j2, grid_width);
-        int index_21 = getIndex(corners.i2, corners.j1, grid_width);
-        int index_22 = getIndex(corners.i2, corners.j2, grid_width);
+		int index_11 = getIndex(corners.x, corners.y, grid_width); /* i1, j1*/ 
+        int index_12 = getIndex(corners.x, corners.w, grid_width); /* i1, j2*/
+		int index_21 = getIndex(corners.z, corners.y, grid_width); /* i2, j1*/ 
+		int index_22 = getIndex(corners.z, corners.w, grid_width); /* i2, j2*/
 
         Ux_11 = Ux_in[index_11];
         Ux_21 = Ux_in[index_21];
@@ -97,10 +102,10 @@ __device__ bool bilinearAprox_Core(
         Uy_22 = Uy_in[index_22];
     }
     else {
-        int index_11 = getGoodIndex(corners.i1, corners.j1, grid_width, grid_height);
-        int index_12 = getGoodIndex(corners.i1, corners.j2, grid_width, grid_height);
-        int index_21 = getGoodIndex(corners.i2, corners.j1, grid_width, grid_height);
-        int index_22 = getGoodIndex(corners.i2, corners.j2, grid_width, grid_height);
+        int index_11 = getGoodIndex(corners.x, corners.y, grid_width, grid_height);
+        int index_12 = getGoodIndex(corners.x, corners.w, grid_width, grid_height);
+        int index_21 = getGoodIndex(corners.z, corners.y, grid_width, grid_height);
+        int index_22 = getGoodIndex(corners.z, corners.w, grid_width, grid_height);
         if (index_11 >= 0) {
             Ux_11 = Ux_in[index_11];
             Uy_11 = Uy_in[index_11];
@@ -117,6 +122,14 @@ __device__ bool bilinearAprox_Core(
             Ux_22 = Ux_in[index_22];
             Uy_22 = Uy_in[index_22];
         }
+        if (corners.x == corners.z) {
+            dist_to_x1 = 0.5;
+            dist_to_x2 = 0.5;
+        }
+        if(corners.y == corners.w) {
+            dist_to_y1 = 0.5;
+            dist_to_y2 = 0.5;
+		}
     }
     /*find values in middle of grid where backtrace remains on grid*/
     double estimated_Ux = bilinearAprox_Quad(

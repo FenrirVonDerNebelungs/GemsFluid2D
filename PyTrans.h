@@ -26,6 +26,7 @@ namespace n_PyTrans {
 	const int32_t P_code = 0x06;/*pressure*/
 	const int32_t gradP_code = 0x07;
 	const int32_t DivU_code = 0x08;
+	const int32_t LapP_code = 0x09;
 	/* 3rd 32 bits */
 	const int32_t X_code = 0x01;
 	const int32_t Y_code = 0x02;
@@ -42,6 +43,8 @@ namespace n_PyTrans {
 	const int32_t jacobi_stack_fill_code = 0x06;
 	const int32_t jacobi_loop_frame_code = 0x07;
 	const int32_t jacobi_frame_code = 0x08;
+	const int32_t jacobi_send_down_code = 0x09;
+	const int32_t after_jacobi_code = 0x0A;
 	/*5th 32 bit code 
 		number of loops processed */
 	/*6th 32 bits cnt code
@@ -164,6 +167,7 @@ public:
 
 	bool resetAndWrite();
 private:
+	int m_total_file_len;/*total length of file in chars (bytes) including file header, cache headers and stream data*/
 	int m_file_header_len;/* len file header in chars (bytes)*/
 	int m_cache_header_len;/*len of each cache header in chars (bytes)*/
 	int m_header_len;/*stream header length in chars, not int32_t's */

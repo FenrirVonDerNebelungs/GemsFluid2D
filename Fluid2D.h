@@ -4,6 +4,9 @@
 #ifndef FLUIDANIMATE_H
 #include "FluidAnimate.h"
 #endif
+#ifndef FILTER_H
+#include "Filter.h"
+#endif
 #ifndef CUDAWRAP_H
 #include "CUDAWrap.h"
 #endif
@@ -13,7 +16,8 @@ public:
 	Fluid2D(
 		int blocks_side_dim = 8,
 		int threads_side_dim = 16,
-		int sim_frames = 3
+		int sim_frames = 3,
+		int filter_sigma = 1.0
 	);
 	~Fluid2D();
 
@@ -25,8 +29,9 @@ public:
 	double* getP() { return m_p; }
 	int getFrameCount() { return m_frame_cnt; }
 private:
-	CUDAWrap m_cuda_wrap;
+	CUDAWrap m_CUDA_wrap;
 	FluidAnimate m_fluid_animate;
+	Filter       m_filter;
 	int m_frame_cnt;
 	double* m_Ux;
 	double* m_Uy;
