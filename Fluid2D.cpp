@@ -22,13 +22,17 @@ Fluid2D::Fluid2D(
 	m_Ux = new double[m_size];
 	m_Uy = new double[m_size];
 	m_p = new double[m_size];
+	m_dye = new double[m_size];
 	s_WH grid_wh = { m_grid_width, m_grid_height };
 	m_fluid_animate.init(grid_wh);
 	std::memset(m_Ux, 0, m_size * sizeof(double));
 	std::memset(m_Uy, 0, m_size * sizeof(double));
 	std::memset(m_p, 0, m_size * sizeof(double));
+	std::memset(m_dye, 0, m_size * sizeof(double));
 }
 Fluid2D::~Fluid2D() {
+	if(m_dye!=nullptr)
+		delete[] m_dye;
 	if (m_p != nullptr)
 		delete[]m_p;
 	if (m_Uy != nullptr)
@@ -41,7 +45,7 @@ int Fluid2D::launchCUDA() {
 	s_force force = m_fluid_animate.getForce(m_frame_cnt);
 	double jacobi_filter[g_jacobi_filter_size];
 	m_filter.genFilter(jacobi_filter, BASE_JACOBI_EXPANSION_FILTER_HALF_WH);
-	int launchOK = m_CUDA_wrap.runCUDA(m_Ux, m_Uy, m_p, force, m_sim_frames, jacobi_filter);
+	int launchOK = m_CUDA_wrap.runCUDA(m_Ux, m_Uy, m_p, m_dye, force, m_sim_frames, jacobi_filter);
 	if(launchOK==0)
 		m_frame_cnt += m_sim_frames;
 	return launchOK;

@@ -173,6 +173,87 @@ __global__ void Xgrid_reduction_x4_paper(
 	Xgrid_reduction_paper(r_grid3, r_index, grid3, i_center, i_L, i_R, i_B, i_T);
 	Xgrid_reduction_paper(r_grid4, r_index, grid4, i_center, i_L, i_R, i_B, i_T);
 }
+__device__ bool Xgrid_expansion_getCellValue(
+	double& expanded_grid_cell_value,
+    const double4& w_,
+    const double2& I_,
+    const double2& J_,
+	const double* r_grid,
+    const int r_grid_width,
+    const int r_grid_height)
+{
+    bool retval = false;
+    double4 corners = make_double4(0.0, 0.0, 0.0, 0.0);
+    if (I_.x >= 0 && I_.y < r_grid_width && J_.x >= 0 && J_.y < r_grid_height) {
+        /* L=x, R=y  B=x T=y*/
+        /* BL=x, BR=y, TR=z, TL=w*/
+        corners.x = r_grid[getIndex(I_.x, J_.x, r_grid_width)]; //BL
+        corners.y = r_grid[getIndex(I_.y, J_.x, r_grid_width)]; //BR
+        corners.z = r_grid[getIndex(I_.y, J_.y, r_grid_width)]; //TR
+        corners.w = r_grid[getIndex(I_.x, J_.y, r_grid_width)]; //TL
+        retval = true;
+    }else
+		retval = false;
+    expanded_grid_cell_value = w_.x * corners.x + w_.y * corners.y + w_.z * corners.z + w_.w * corners.w;
+    return retval;
+}
+__device__ void Xgrid_expansion_getCellValue_Edge(
+    double& expanded_grid_cell_value,
+    const double4& w_in,
+    double l,
+    double s,
+    const double2& I_,
+    const double2& J_,
+    const double* r_grid,
+    const int r_grid_width,
+    const int r_grid_height)
+{
+	double4 w_ = w_in;
+    double4 corners = make_double4(0.0, 0.0, 0.0, 0.0);
+        /* L=x, R=y  B=x T=y*/
+        /* BL=x, BR=y, TR=z, TL=w*/
+    if (I_.x < 0) { //L
+        if (J_.x < 0) //B
+            w_.z = 1.0;//TR
+        else if (J_.y >= r_grid_height) //T 
+            w_.y = 1.0; //BR
+        else {
+            w_.z /= l; //TR
+            w_.y /= l; //BR
+        }
+    }
+    else if (I_.y >= r_grid_width) {
+        if (J_.x < 0) //B
+            w_.w = 1.0; //TL
+        else if (J_.y >= r_grid_height) //T
+            w_.x = 1.0; //BL
+        else {
+            w_.w /= l; //TL
+            w_.x /= l; //BL
+        }
+    }
+    else {/*r_I_L and r_I_R are ok */
+        if (J_.x < 0) { //B
+            w_.z /= l; //TR
+            w_.w /= l; //TL
+        }
+        else { /*r_J_T must be >= r_grid_height*/
+            w_.y /= l; //BR
+            w_.x /= l; //BL
+        }
+    }
+
+    if(I_.x>=0 && J_.x >=0)
+        corners.x = r_grid[getIndex(I_.x, J_.x, r_grid_width)]; //BL
+	if (I_.y < r_grid_width && J_.x >= 0)
+        corners.y = r_grid[getIndex(I_.y, J_.x, r_grid_width)]; //BR
+	if (I_.y < r_grid_width && J_.y < r_grid_height)
+        corners.z = r_grid[getIndex(I_.y, J_.y, r_grid_width)]; //TR
+	if (I_.x >= 0 && J_.y < r_grid_height)
+        corners.w = r_grid[getIndex(I_.x, J_.y, r_grid_width)]; //TL
+    
+    expanded_grid_cell_value = w_.x * corners.x + w_.y * corners.y + w_.z * corners.z + w_.w * corners.w;
+}
 /*grid must be 2width and 2height of r_grid
 * blocks/threads are run over expanded grid*/
 __global__ void Xgrid_expansion(
@@ -187,8 +268,63 @@ __global__ void Xgrid_expansion(
     const double l = 0.75;
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int r_I_L = 0, r_I_R=0;
-    int r_J_B=0, r_J_T=0;
+	double4 w_ = make_double4(0.0, 0.0, 0.0, 0.0);
+	double2 I_ = make_double2(0.0, 0.0);
+	double2 J_ = make_double2(0.0, 0.0);
+    double4 corners = make_double4(0.0, 0.0, 0.0, 0.0);
+    double expanded_grid_cell_value = 0.0;
+    /* BL=x, BR=y, TR=z, TL=w*/
+    if (i % 2 == 0) {
+        I_.y = i / 2; //R
+        w_.z = l; //TR
+        w_.y = l; //BR
+        I_.x = I_.y - 1; //L
+        w_.w = s; //TL
+        w_.x = s; //BL
+    }
+    else {
+        I_.x = i / 2; //L
+		w_.w = l; //TL
+        w_.x = l; //BL
+        I_.y = I_.x + 1; //R
+        w_.z = s; //TR
+        w_.y = s; //BR
+    }
+    if (j % 2 == 0) {
+        J_.y = j / 2; //T
+        w_.w *= l; //TL
+        w_.z *= l; //TR
+        J_.x = J_.y - 1; //B
+        w_.x *= s; //BL
+        w_.y *= s; //BR
+    }
+    else {
+        J_.x = j / 2; //B
+        w_.x *= l; //BL
+        w_.y *= l; //BR
+        J_.y = J_.x + 1; //T
+        w_.w *= s; //TL
+        w_.z *= s; //TR
+    }
+    if( !Xgrid_expansion_getCellValue(expanded_grid_cell_value,w_, I_, J_, r_grid, r_grid_width, r_grid_height) )
+		Xgrid_expansion_getCellValue_Edge(expanded_grid_cell_value, w_, l, s, I_, J_, r_grid, r_grid_width, r_grid_height);
+    int grid_index = getIndex(i, j, grid_width);
+    grid[grid_index] = expanded_grid_cell_value;
+}
+__global__ void Xgrid_expansion_big(
+    double* grid,
+    const int grid_width,
+    const int grid_height,
+    const double* r_grid,
+    const int r_grid_width,
+    const int r_grid_height)
+{
+    const double s = 0.25;
+    const double l = 0.75;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int r_I_L = 0, r_I_R = 0;
+    int r_J_B = 0, r_J_T = 0;
     double w_TL = 0.0, w_TR = 0.0;
     double w_BL = 0.0, w_BR = 0.0;
     double val_TL = 0.0, val_TR = 0.0;

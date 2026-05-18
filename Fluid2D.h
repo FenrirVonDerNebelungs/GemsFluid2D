@@ -36,6 +36,7 @@ private:
 	double* m_Ux;
 	double* m_Uy;
 	double* m_p;
+	double* m_dye;
 	int m_blocks_side_dim;
 	int m_threads_side_dim;
 	int m_sim_frames;

@@ -1,5 +1,6 @@
 #include "FluidAnimate.h"
-FluidAnimate::FluidAnimate(int max_frame_duration) : m_max_frame_duration(max_frame_duration) {
+FluidAnimate::FluidAnimate(int max_frame_duration, int decay_frames, double decay_factor) : m_max_frame_duration(max_frame_duration),
+m_decay_frames(decay_frames), m_decay_factor(decay_factor){
 	m_grid_width = 0;
 	m_grid_height = 0;
 	m_force_frame_start = 0;
@@ -34,6 +35,17 @@ s_force FluidAnimate::getForce(int frame_cnt, int start_frame, double Ang, doubl
 	else
 		m_vars.inv_Rsqrd = 0.0;
 	computeForceVars(frame_cnt);
+	return m_vars;
+}
+s_force FluidAnimate::updateForce(int frame_cnt) {
+	if (m_vars.active && (frame_cnt > (m_max_frame_duration + m_force_frame_start)) ) {
+		if(frame_cnt > (m_max_frame_duration + m_decay_frames + m_force_frame_start))
+		    m_vars.active = false;
+		else {
+			m_vars.Fx_c *= m_decay_factor;
+			m_vars.Fy_c *= m_decay_factor;
+		}
+	}
 	return m_vars;
 }
 bool FluidAnimate::computeForceVars(int frame_cnt) {

@@ -59,7 +59,42 @@ __device__ double bilinearAprox_Quad(
     double est_val = dist_to_x2 * dist_to_y2 * Q_11 + dist_to_x1 * dist_to_y2 * Q_21 + dist_to_x2 * dist_to_y1 * Q_12 + dist_to_x1 * dist_to_y1 * Q_22;
     return est_val;
 }
-__device__ bool bilinearAprox_Core(
+
+__device__ double bilinearAprox_Core(
+    int Q_index,
+    const double* Q,
+    const int* index_11,
+    const int* index_12,
+    const int* index_21,
+    const int* index_22,
+    const double* dist_to_x1,
+    const double* dist_to_x2,
+    const double* dist_to_y1,
+    const double* dist_to_y2
+) {
+    /* frac{1}{(x_2 - x_1)(y_2-y_1)} ((x_2-x)(y_2-y)Q_{11} + (x-x_1)(y_2-y)Q_{21} + (x_2-x)(y-y_1)Q_{12} + (x-x_1)(y-y_1)Q_{22} */
+    /* (y_2-y_1)=(x_2-x_1)=delta_x*/
+    double Q_11 = 0.0, Q_21 = 0.0, Q_12 = 0.0, Q_22 = 0.0;
+    if (index_11[Q_index] >= 0)
+        Q_11 = Q[index_11[Q_index]];
+    if (index_21[Q_index] >= 0)
+        Q_21 = Q[index_21[Q_index]];
+    if (index_12[Q_index] >= 0)
+        Q_12 = Q[index_12[Q_index]];
+    if (index_22[Q_index] >= 0)
+        Q_22 = Q[index_22[Q_index]];
+    double estimated_Q = bilinearAprox_Quad(
+        dist_to_x1[Q_index],
+        dist_to_x2[Q_index],
+        dist_to_y1[Q_index],
+        dist_to_y2[Q_index],
+        Q_11,
+        Q_21,
+        Q_12,
+        Q_22);
+    return estimated_Q;
+}
+__device__ bool bilinearAprox_Core_big(
     double2* pU_out,
     const double* Ux_in,
     const double* Uy_in,
@@ -100,6 +135,7 @@ __device__ bool bilinearAprox_Core(
         Uy_21 = Uy_in[index_21];
         Uy_12 = Uy_in[index_12];
         Uy_22 = Uy_in[index_22];
+
     }
     else {
         int index_11 = getGoodIndex(corners.x, corners.y, grid_width, grid_height);
@@ -184,7 +220,7 @@ __global__ void bilinearAprox_scaledFrame_Core( /*i and j block indexes run over
             if (i_out < 0 || i_out >= out_grid_width)
                 continue;
             int out_index = getIndex(i_out, j_out, out_grid_width);
-			bilinearAprox_Core(&U_out, Ux_in, Uy_in, relPos, i, j, grid_width, grid_height);
+			bilinearAprox_Core_big(&U_out, Ux_in, Uy_in, relPos, i, j, grid_width, grid_height);
 			Ux_out[out_index] = U_out.x;
 			Uy_out[out_index] = U_out.y;
         }
@@ -194,13 +230,20 @@ __global__ void copy_memory(double* copy, const double* orig) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     copy[i] = orig[i];
 }
+__global__ void add_values(double* in_out, const double* in) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+	in_out[i] += in[i];
+}
 __global__ void applyForce_Core(
     double* Ux_out,
     double* Uy_out,
+    double* dye_out,
     const double* Ux_in,
     const double* Uy_in,
+    const double* dye_in,
     const double2 center/*in i,j*/,
     const double2 F_c,
+    double dye_Drho,
     double delta_t,
     double inv_rsqrd,
     const int grid_width) 
@@ -220,6 +263,8 @@ __global__ void applyForce_Core(
     double delta_uy = delta_t * force_y;
     Ux_out[center_index] = Ux_in[center_index] + delta_ux;
     Uy_out[center_index] = Uy_in[center_index] + delta_uy;
+	double delta_dye = dye_Drho * exp_arg;
+	dye_out[center_index] = dye_in[center_index] + delta_dye;
 }
 
 __device__ void viscous_diffusion_for_component(

@@ -20,7 +20,8 @@ header2 = {
     0x06: 'P',
     0x07: 'gradP',
     0x08: 'DivU',
-    0x09: 'LapP'
+    0x09: 'LapP',
+    0x0A: 'Dye'
 }
 #3rd 32 bits
 header3 = {
@@ -42,7 +43,8 @@ header4 = {
     0x07: 'jacobi_loop',
     0x08: 'jacobi_frame',
     0x09: 'jacobi_senddown',
-    0x0A: 'after_jacobi'
+    0x0A: 'after_jacobi',
+    0x0B: 'after_viscous'
     }
 
 cache_header = {

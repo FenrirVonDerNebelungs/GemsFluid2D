@@ -43,9 +43,16 @@ class drawFrame:
         Ux_2D = self.convertTo2D(Ux)
         Uy_2D = self.convertTo2D(Uy)
         Mag = np.sqrt(Ux_2D**2 + Uy_2D**2)
+        step=4
+        x_sparse = x[::step, ::step]
+        y_sparse = y[::step, ::step]
+        Ux_sparse = Ux_2D[::step, ::step]
+        Uy_sparse = Uy_2D[::step, ::step]
+        Mag_sparse = Mag[::step, ::step]
         plt.figure(figsize=(12,12))
-        plt.quiver(x,y,Ux_2D, Uy_2D, Mag, angles='xy', scale_units='xy', scale=1, cmap='viridis')
-        plt.colorbar(label='Magnitude')
+        plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=1, cmap='viridis')
+        #plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=0.025, cmap='viridis')
+        #plt.colorbar(label='Magnitude')
 
         plt.title(graph_title)
         plt.axis('equal')
@@ -113,7 +120,153 @@ class drawFrame:
         plt.title(graph_title)
         plt.colorbar()
         plt.show()
+        
+    def fix_edges(self, W):
+        gwidth=self.grid_wh[0]
+        gheight=self.grid_wh[1]
+        for j in range(gheight):
+            grid_index = j * gwidth
+            W[grid_index]=0.0
+            grid_index += (gwidth-1)
+            W[grid_index]=0.0
+        for i in range(gwidth):
+            grid_index = i
+            W[grid_index]=0.0
+            grid_index = (gheight-1)*gwidth + i
+            W[grid_index]=0.0
 
+    def drawDivW_test(self, header_stack, data_stack):
+        for i in range(len(header_stack)):
+            header = header_stack[i]
+            grid_width = ct.getGridWidth(header)
+            grid_height = ct.getGridHeight(header)
+            self.setGridWH(grid_width, grid_height)
+            label = ct.header2[ct.getDataLabel(header)]
+            axis = ct.header3[ct.getDataAxis(header)]
+            start_end_label = ct.header4[ct.getDataStartEndCode(header)]
+            jacobi_frame_label='jacobi'
+            jacobi_fill_label = 'fill'
+            if (not jacobi_frame_label in start_end_label) and (not jacobi_fill_label in start_end_label):
+                match label:
+                    case 'W':
+                        if axis=='X':
+                            Wx = data_stack[i]
+                            Wy = data_stack[i+1]
+                            graph_title = "W at Frame: "+str(self.frame_index)+ " step: "+start_end_label 
+                            self.draw_U_vector(Wx, Wy, graph_title)
+                            if start_end_label == 'after_advection':
+                                DivW = tc.Div(Wx,Wy,grid_width, grid_height,1e-3)
+                                self.draw_scalar(DivW, 'Div W test')
+                                DWdx = tc.Dx_wide(Wx,grid_width,grid_height,1e-3)
+                                DWdy = tc.Dy_wide(Wy,grid_width,grid_height, 1e-3)
+                                self.draw_scalar(DWdx, 'dW/dx test')
+                                self.draw_scalar(DWdy, '\\frac\{dW\}\{dy\} test')
+                                self.draw_scalar(Wx, 'W x')
+                                self.draw_scalar(Wy, 'W y')
+                                DivW_test = [val1 + val2 for val1, val2 in zip(DWdx, DWdy)]
+                                self.draw_scalar(DivW_test, "Manual test DivW")
+                    case 'DivW':
+                        DivW = data_stack[i]
+                        self.fix_edges(DivW)
+                        self.draw_scalar(DivW, 'Div W')
+                    case 'P':
+                        pressure = data_stack[i]
+                        graph_title = label + " at Frame: "+str(self.frame_index) + " step: "+start_end_label
+                        #self.draw_scalar(pressure, label)
+                    case _:
+                        xxx='unmatched'
+            
+        return 0
+    
+    def drawViscous(self, header_stack, data_stack):
+        i_after_advection=-1            
+        for i in range(len(header_stack)):
+            header = header_stack[i]
+            grid_width = ct.getGridWidth(header)
+            grid_height = ct.getGridHeight(header)
+            self.setGridWH(grid_width, grid_height)
+            label = ct.header2[ct.getDataLabel(header)]
+            axis = ct.header3[ct.getDataAxis(header)]
+            start_end_label = ct.header4[ct.getDataStartEndCode(header)]
+            jacobi_frame_label='jacobi'
+            jacobi_fill_label = 'fill'
+            delta_x =1.0e-3
+            delta_t =1.0e-3
+            nu = 1.0e-5
+            if (not jacobi_frame_label in start_end_label) and (not jacobi_fill_label in start_end_label):
+                match label:
+                    case 'U':
+                        if axis=='X' and start_end_label == 'after_advection':
+                            i_after_advection=i
+                    case 'W':
+                        if axis=='X' and start_end_label == 'after_viscous' and self.frame_index>0:
+                            Wx_adv = data_stack[i_after_advection]
+                            Wy_adv = data_stack[i_after_advection+1]
+                            Wx = data_stack[i]
+                            Wy = data_stack[i+1]
+                            Vx = tc.subFields(Wx, Wx_adv)
+                            Vy = tc.subFields(Wy, Wy_adv)
+                            Vx_test = tc.viscous(Wx_adv,grid_width, grid_height,delta_x,delta_t, nu)
+                            Vy_test = tc.viscous(Wy_adv,grid_width, grid_height, delta_x, delta_t, nu)     
+                            F_max_x, F_min_x = self.findMaxMin(Vx)
+                            F_max_y, F_min_y = self.findMaxMin(Vy)
+                            F_sup_x = max(abs(F_max_x), abs(F_min_x))
+                            F_sup_y = max(abs(F_max_y), abs(F_min_y))
+                            graph_title = "Frame: "+str(self.frame_index) + ' force X'
+                            self.drawColor2D(Vx, graph_title, F_sup_x, -F_sup_x)
+                            graph_title = "Frame: "+str(self.frame_index) + ' force Y'
+                            self.drawColor2D(Vy, graph_title, F_sup_y, -F_sup_y)
+                            graph_title = "Frame: "+str(self.frame_index) + ' force X test'
+                            self.drawColor2D(Vx_test, graph_title, F_sup_x, -F_sup_x)
+                            graph_title = "Frame: "+str(self.frame_index) + ' force Y test'
+                            self.drawColor2D(Vy_test, graph_title, F_sup_y, -F_sup_y) 
+                            x_diff = tc.subFields(Vx, Vx_test)
+                            y_diff = tc.subFields(Vy, Vy_test)
+                            graph_title = 'sub X'
+                            self.drawColor2D(x_diff, graph_title, F_sup_x, -F_sup_x)
+                            graph_title = 'sub Y'
+                            self.drawColor2D(y_diff, graph_title, F_sup_y, -F_sup_y)
+                            graph_title = "W"
+                            self.draw_U_vector(Wx, Wy, graph_title)
+                            
+                    case _:
+                        xxx='unmatched'
+        return 0
+    
+    def drawFast(self, header_stack, data_stack):
+        i_P_adv=-1
+        for i in range(len(header_stack)):
+            header = header_stack[i]
+            grid_width = ct.getGridWidth(header)
+            grid_height = ct.getGridHeight(header)
+            self.setGridWH(grid_width, grid_height)
+            label = ct.header2[ct.getDataLabel(header)]
+            axis = ct.header3[ct.getDataAxis(header)]
+            start_end_label = ct.header4[ct.getDataStartEndCode(header)]
+            if label == 'U' and start_end_label == 'end_frame' and axis=='X':
+                Ux=data_stack[i]
+                Uy=data_stack[i+1]
+                graph_title = label + " Loop: " + str(self.frame_index)
+                self.draw_U_vector(Ux,Uy,graph_title)
+            if label == 'P' and start_end_label == 'after_advection':
+                i_P_adv=i
+                P_adv= data_stack[i]
+                p_max,p_min = self.findMaxMin(P_adv)
+                graph_title = label + " Loop: " + str(self.frame_index)
+                self.drawColor2D(P_adv,graph_title,p_max,p_min)
+            if label == 'P' and start_end_label == 'after_force':
+                P_force = data_stack[i]
+                P_adv = data_stack[i_P_adv]
+                P_total = tc.addFields(P_adv,P_force)
+                p_max, p_min = self.findMaxMin(P_total)
+                graph_title = label + " Force Loop: " + str(self.frame_index)
+                self.drawColor2D(P_total,graph_title,p_max, p_min)
+            if label == 'Dye':
+                dye_dat = data_stack[i]
+                dye_max, dye_min = self.findMaxMin(dye_dat)
+                graph_title = label + " Loop: "+str(self.frame_index) + start_end_label
+                self.drawColor2D(dye_dat, graph_title, dye_max, dye_min)
+                
     def draw(self, header_stack, data_stack):
         for i in range(len(header_stack)):
             header = header_stack[i]
@@ -147,6 +300,7 @@ class drawFrame:
                             self.draw_U_vector(Wx, Wy, graph_title)
                     case 'DivW':
                         DivW = data_stack[i]
+                        self.fix_edges(DivW)
                         self.draw_scalar(DivW, 'Div W')
                     case 'P':
                         pressure = data_stack[i]
@@ -154,10 +308,9 @@ class drawFrame:
                         self.draw_scalar(pressure, label)
                     case 'DivU':
                         DivU = data_stack[i]
-                        self.draw_scalar(DivU, label)
+                        #self.draw_scalar(DivU, label)
                     case _:
                         xxx='unmatched'
-            
         return 0
     
     def get_W_DivW_P_GradP_limits(self, header_stack, data_stack):
@@ -356,10 +509,12 @@ class Test:
             self.Draw.updateFrameIndex(frame_cnt)
             frame_cnt += 1
             if(len_returned>=1):
-                testtt=1
-                self.Draw.draw(header_stack, data_stack)
+                self.Draw.drawFast(header_stack, data_stack)
+                #self.Draw.drawViscous(header_stack, data_stack)
+                #self.Draw.draw(header_stack, data_stack)
                 #self.Draw.drawJacobi(header_stack, data_stack)
                 #self.Draw.drawTestCheck(header_stack, data_stack)
+                #self.Draw.drawDivW_test(header_stack, data_stack)
             
 testInst = Test()
 testInst.Run()

@@ -27,6 +27,7 @@ namespace n_PyTrans {
 	const int32_t gradP_code = 0x07;
 	const int32_t DivU_code = 0x08;
 	const int32_t LapP_code = 0x09;
+	const int32_t Dye_code = 0x0A;
 	/* 3rd 32 bits */
 	const int32_t X_code = 0x01;
 	const int32_t Y_code = 0x02;
@@ -45,6 +46,7 @@ namespace n_PyTrans {
 	const int32_t jacobi_frame_code = 0x08;
 	const int32_t jacobi_send_down_code = 0x09;
 	const int32_t after_jacobi_code = 0x0A;
+	const int32_t after_viscous_diff_code = 0x0B;
 	/*5th 32 bit code 
 		number of loops processed */
 	/*6th 32 bits cnt code
