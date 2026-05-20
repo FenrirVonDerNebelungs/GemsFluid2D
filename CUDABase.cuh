@@ -243,9 +243,11 @@ __global__ void applyForce_Core(
     const double* dye_in,
     const double2 center/*in i,j*/,
     const double2 F_c,
-    double dye_Drho,
+    const double2 dye_center,
+    double dye_delta_mag,
     double delta_t,
     double inv_rsqrd,
+	double inv_dye_rsqrd,
     const int grid_width) 
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -255,15 +257,21 @@ __global__ void applyForce_Core(
     double x_dist = (double)i - center.x;
     double y_dist = (double)j - center.y;
     double arg = -(x_dist * x_dist + y_dist * y_dist) * inv_rsqrd;
-    
 	double exp_arg = exp(arg);
+
+	double dye_x_dist = (double)i - dye_center.x;
+	double dye_y_dist = (double)j - dye_center.y;
+	double dye_arg = -(dye_x_dist * dye_x_dist + dye_y_dist * dye_y_dist) * inv_dye_rsqrd;
+    double dye_exp_arg = exp(dye_arg);
+
     double force_x = F_c.x * exp_arg;
     double force_y = F_c.y * exp_arg;
     double delta_ux = delta_t * force_x;
     double delta_uy = delta_t * force_y;
     Ux_out[center_index] = Ux_in[center_index] + delta_ux;
     Uy_out[center_index] = Uy_in[center_index] + delta_uy;
-	double delta_dye = dye_Drho * exp_arg;
+
+	double delta_dye = dye_delta_mag * dye_exp_arg;
 	dye_out[center_index] = dye_in[center_index] + delta_dye;
 }
 

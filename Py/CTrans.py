@@ -8,7 +8,8 @@ import numpy as np
 #1st 32 bits
 header1 = {
      0x01 : 'grid',
-     0x02 : 'img' 
+     0x02 : 'img',
+     0x03 : 'int_grid' 
 }
 #2nd 32 bits
 header2 = {
@@ -21,7 +22,9 @@ header2 = {
     0x07: 'gradP',
     0x08: 'DivU',
     0x09: 'LapP',
-    0x0A: 'Dye'
+    0x0A: 'Dye',
+    0x0B: 'Advect_i',
+    0x0C: 'Advect_d'
 }
 #3rd 32 bits
 header3 = {
@@ -51,7 +54,11 @@ cache_header = {
     0x01: 'float',
     0x02: 'double'
 }
-
+def getStreamType(header):
+    if np.size(header)<1:
+        return 0
+    return header[0]
+    
 def getGridWidth(header):
     width = header[6]
     return int(width)
@@ -277,12 +284,17 @@ class CTrans:
         data = []
         data_len=0
         stream_len=0
-        if self.cache_data_type=='double':
-            data_len = getDataLen(header,8)
-            data = streamCtoD(data_len, stream_in, stream_offset+self.header_len)
-        elif self.cache_data_type == 'float':
+        stream_type = header1[getStreamType(header)]
+        if stream_type=='grid':
+            if self.cache_data_type=='double':
+                data_len = getDataLen(header,8)
+                data = streamCtoD(data_len, stream_in, stream_offset+self.header_len)
+            elif self.cache_data_type == 'float':
+                data_len = getDataLen(header,4)
+                data = streamCtoF(data_len, stream_in, stream_offset+self.header_len)
+        elif stream_type == 'int_grid':
             data_len = getDataLen(header,4)
-            data = streamCtoF(data_len, stream_in, stream_offset+self.header_len)
+            data = streamCtoI(data_len,stream_in,stream_offset+self.header_len)
         stream_len = data_len+self.header_len
         return header, data, stream_len
 

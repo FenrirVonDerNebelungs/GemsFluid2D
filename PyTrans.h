@@ -17,6 +17,7 @@ namespace n_PyTrans {
 	/*1st 32 bits*/
 	const int32_t grid_code = 0x01;
 	const int32_t img_code = 0x02;
+	const int32_t int_grid_code = 0x03;
 	/*second 32 bits*/
 	const int32_t U_code = 0x01;
 	const int32_t Force_code = 0x02;
@@ -28,12 +29,15 @@ namespace n_PyTrans {
 	const int32_t DivU_code = 0x08;
 	const int32_t LapP_code = 0x09;
 	const int32_t Dye_code = 0x0A;
+	const int32_t Advection_indexes_code = 0x0B;
+	const int32_t Advection_dist_code = 0x0C;
 	/* 3rd 32 bits */
 	const int32_t X_code = 0x01;
 	const int32_t Y_code = 0x02;
 	const int32_t Scalar_code = 0x00;/*scalar*/
 	const int32_t X_exp_code = 0x03;/*enlarged */
 	const int32_t Y_exp_code = 0x04;
+	const int32_t Discrete_code = 0x05;/*for advection indexes and other discrete values*/
 	/*4th 32 bits step code */
 	const int32_t mid_frame_code = 0x00;
 	const int32_t start_frame_code = 0x01;
@@ -152,6 +156,17 @@ public:
 		int jacobi_frame=0,
 		int jacobi_stack_index = 0
 	);
+	bool cacheGrid(
+		const int grid_vals[],
+		int grid_width,
+		int grid_height,
+		int number_of_loops = 0,
+		int32_t label_code = 0,
+		int32_t axis_code = 0,
+		int32_t start_end_code = 0,
+		int jacobi_frame = 0,
+		int jacobi_stack_index = 0
+	);
 	bool cacheImage(
 		const unsigned char img_vals[], /*assumes 3 char per pix input stream size is width*height*3 */
 		int img_width,
@@ -169,6 +184,7 @@ public:
 
 	bool resetAndWrite();
 private:
+	bool m_file_opened;
 	int m_total_file_len;/*total length of file in chars (bytes) including file header, cache headers and stream data*/
 	int m_file_header_len;/* len file header in chars (bytes)*/
 	int m_cache_header_len;/*len of each cache header in chars (bytes)*/
@@ -206,7 +222,22 @@ private:
 		int jacobi_stack_index = 0,	
 		int ch_stream_offset=0,
 		int ch_stream_len = -1);
+	bool sendGrid(
+		char ch_stream[],
+		const int grid_vals[],
+		int grid_width,
+		int grid_height,
+		int32_t label_code = 0,
+		int32_t axis_code = 0,
+		int32_t start_end_code = 0,
+		int number_of_loops = 0,
+		int jacobi_frame = 0,
+		int jacobi_stack_index = 0,
+		int ch_stream_offset = 0,
+		int ch_stream_len = -1);
+
 	int getGridStreamLen(int grid_width, int grid_height);/*assumes double for grid includes header len*/
+	int getGridStreamLenInt(int grid_width, int grid_height);
 
 	bool sendImage(
 		char ch_stream[],

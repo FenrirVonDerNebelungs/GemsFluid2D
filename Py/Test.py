@@ -23,11 +23,16 @@ class drawFrame:
     def convertTo2D(self, raw_array, exp_factor=1):
         width = self.grid_wh[0]
         height = self.grid_wh[1]
-        V_array = np.array(raw_array).reshape(height, width) #np.zeros((width, height))
+        np_array = np.array(raw_array)
+        V_array = np_array.reshape(height, width) #np.zeros((width, height))
         #for j in range(height):
         #    for i in range(width):
         #        V_array[i,j]=raw_array[j*width + i]
         return V_array
+
+    def scaleArray(self, raw_array, scale_factor=1.0e-3):
+        np_array = np.array(raw_array)
+        return np_array*scale_factor
 
     def findMaxMin(self, raw_array):
         max_val=0.0
@@ -35,6 +40,12 @@ class drawFrame:
         max_val = max(raw_array)
         min_val = min(raw_array)
         return max_val, min_val
+    
+    def findMagArray(self, ar1, ar2):
+        mag_ar = np.zeros(len(ar1))
+        for i in range(len(ar1)):
+            mag_ar[i]=np.sqrt(ar1[i]**2 + ar2[i]**2)
+        return mag_ar
     
     def draw_U_vector(self, Ux, Uy, graph_title):
         gwidth = self.grid_wh[0]
@@ -50,9 +61,10 @@ class drawFrame:
         Uy_sparse = Uy_2D[::step, ::step]
         Mag_sparse = Mag[::step, ::step]
         plt.figure(figsize=(12,12))
-        plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=1, cmap='viridis')
-        #plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=0.025, cmap='viridis')
-        #plt.colorbar(label='Magnitude')
+        #plt.quiver(x,y,Ux_2D, Uy_2D, Mag, angles='xy', scale_units='xy', scale=1, cmap='viridis')
+        #plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=1, cmap='viridis')
+        plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=0.3, cmap='viridis')
+        plt.colorbar(label='Magnitude')
 
         plt.title(graph_title)
         plt.axis('equal')
@@ -233,6 +245,59 @@ class drawFrame:
                         xxx='unmatched'
         return 0
     
+    def drawAdvTest(self, header_stack, data_stack):
+        index_dat_is=[0,0,0,0]
+        index_dat_i = 0
+        dist_dat_is = [0,0,0,0]
+        dist_dat_i=0
+        index_Ux=0
+        for i in range(len(header_stack)):
+            header = header_stack[i]
+            grid_width = ct.getGridWidth(header)
+            grid_height = ct.getGridHeight(header)
+            self.setGridWH(grid_width, grid_height)
+            label = ct.header2[ct.getDataLabel(header)]
+            axis = ct.header3[ct.getDataAxis(header)]
+            num_axis = ct.getDataAxis(header)
+            start_end_label = ct.header4[ct.getDataStartEndCode(header)]
+            graph_title = label + " loop: " +str(self.frame_index)+' '+start_end_label
+            
+            if label == 'W' and axis=='X' and start_end_label=='start_frame':
+                index_Ux=i
+                Ux=data_stack[i]
+                Uy=data_stack[i+1]
+                #self.draw_U_vector(Ux,Uy,graph_title)
+            elif label == 'Dye':
+                dye_dat = data_stack[i]
+                dye_max, dye_min = self.findMaxMin(dye_dat)
+                #self.drawColor2D(dye_dat, graph_title, dye_max, dye_min)
+            elif label == 'Advect_d':
+                dist_dat_is[dist_dat_i]=i
+                dist_dat_i+=1
+            elif label == 'Advect_i':
+                index_dat_is[index_dat_i]=i
+                index_dat_i+=1
+        dat_i1 = data_stack[index_dat_is[0]]
+        dat_i2 = data_stack[index_dat_is[1]]
+        dat_i3 = data_stack[index_dat_is[2]]
+        dat_i4 = data_stack[index_dat_is[3]]
+        dat_d1 = data_stack[dist_dat_is[0]]
+        dat_d2 = data_stack[dist_dat_is[1]]
+        dat_d3 = data_stack[dist_dat_is[2]]
+        dat_d4 = data_stack[dist_dat_is[3]]
+        d_x, d_y = tc.dispLocFromIndexes(dat_i1, dat_i2, dat_i3, dat_i4,dat_d1, dat_d2,dat_d3,dat_d4,grid_width, grid_height)
+        Ux_start = data_stack[index_Ux]
+        Uy_start = data_stack[index_Ux+1]
+        d_x_test, d_y_test = tc.dispLocFromU(Ux_start, Uy_start, grid_width, grid_height)
+        graph_title_ = " displacement "
+        self.draw_U_vector(d_x, d_y, graph_title_)
+        graph_title_+=" test "
+        self.draw_U_vector(d_x_test, d_y_test, graph_title_)
+        disp_diff_x = tc.subFields(d_x_test, d_x)
+        disp_diff_y = tc.subFields(d_y_test, d_y)
+        graph_title_ += "diff"
+        self.draw_U_vector(disp_diff_x, disp_diff_y, graph_title_)
+    
     def drawFast(self, header_stack, data_stack):
         i_P_adv=-1
         for i in range(len(header_stack)):
@@ -247,8 +312,13 @@ class drawFrame:
                 Ux=data_stack[i]
                 Uy=data_stack[i+1]
                 graph_title = label + " Loop: " + str(self.frame_index)
-                self.draw_U_vector(Ux,Uy,graph_title)
-            if label == 'P' and start_end_label == 'after_advection':
+                Ux_scaled = self.scaleArray(Ux)
+                Uy_scaled = self.scaleArray(Uy)
+                self.draw_U_vector(Ux_scaled,Uy_scaled,graph_title)
+                U_mag = self.findMagArray(Ux, Uy)
+                U_max, U_min = self.findMaxMin(U_mag)
+                print(U_max, U_min)
+            if label == 'P':# and start_end_label == 'after_advection':
                 i_P_adv=i
                 P_adv= data_stack[i]
                 p_max,p_min = self.findMaxMin(P_adv)
@@ -509,6 +579,7 @@ class Test:
             self.Draw.updateFrameIndex(frame_cnt)
             frame_cnt += 1
             if(len_returned>=1):
+                #self.Draw.drawAdvTest(header_stack, data_stack)
                 self.Draw.drawFast(header_stack, data_stack)
                 #self.Draw.drawViscous(header_stack, data_stack)
                 #self.Draw.draw(header_stack, data_stack)

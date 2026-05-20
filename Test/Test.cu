@@ -14,27 +14,33 @@ Test::Test(int num_display_frames, int blow_factor, int loop_modulus_divider) :
     m_pCurrent_GenImage(nullptr),
     m_current_max(0.0)
 {
-    m_pCUDA_wrap = new CUDAWrap();
+    m_pCUDA_wrap = new CUDAWrap;
 	int size = m_pCUDA_wrap->grid_width * m_pCUDA_wrap->grid_height;
 	m_Ux = new double[size];
 	m_Uy = new double[size];
 	m_p = new double[size];
+    m_dye = new double[size];
     int blown_size = size * m_blow_factor * m_blow_factor;
     m_Ux_bilinear = new double[blown_size];
     m_Uy_bilinear = new double[blown_size];
+	m_dye_bilinear = new double[blown_size];
     m_pPyTrans = new PyTrans();
 	m_pFluid_animate = new FluidAnimate();
 	s_WH wh = getGridWidthHeight();
 	m_pFluid_animate->init(wh);
 	m_force = m_pFluid_animate->getForce(0);
+	m_pFluid_animate->setDye(0);
     for (int i = 0; i < 4; i++) {
 		m_host_scratch[i] = new double[size];
     }
+	m_host_scratch_int = new int[size];
     m_pDraw = new drawTest(m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height);
 }
 Test::~Test() {
     if (m_pDraw != nullptr)
         delete m_pDraw;
+	if (m_host_scratch_int != nullptr)
+		delete[] m_host_scratch_int;
     for (int i = 0; i < 4; i++) {
         if (m_host_scratch[i] != nullptr)
             delete[] m_host_scratch[i];
@@ -43,11 +49,15 @@ Test::~Test() {
         delete m_pFluid_animate;
     if (m_pPyTrans != nullptr)
         delete m_pPyTrans;
+	if (m_dye_bilinear != nullptr)
+		delete[] m_dye_bilinear;
     if (m_Uy_bilinear != nullptr)
         delete [] m_Uy_bilinear;
     if (m_Ux_bilinear != nullptr)
         delete[] m_Ux_bilinear;
 
+    if(m_dye!=nullptr)
+		delete[] m_dye;
     if(m_p!= nullptr)
 		delete[] m_p;
     if(m_Uy!=nullptr)
@@ -62,53 +72,54 @@ int Test::runTest(int sim_frames) {
     std::memset(m_Ux, 0, size * sizeof(double));
     std::memset(m_Uy, 0, size * sizeof(double));
     std::memset(m_p, 0, size * sizeof(double));
-    runCUDA(m_Ux, m_Uy, m_p, m_force, sim_frames);
+	std::memset(m_dye, 0, size * sizeof(double));
+    double jacobi_filter[g_jacobi_filter_size];
+    m_filter.genFilter(jacobi_filter, BASE_JACOBI_EXPANSION_FILTER_HALF_WH);
+    runCUDA(m_Ux, m_Uy, m_p, m_dye, sim_frames, jacobi_filter);
     return 0;
 }
-int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames) {
+int Test::runCUDA(double* Ux, double* Uy, double* pressure, double* dye, int sim_frames, double jacobi_filter[]) {
     unsigned int size = m_pCUDA_wrap->grid_width * m_pCUDA_wrap->grid_height;
     cudaError_t cudaStatus = cudaSuccess;
-    if (m_pCUDA_wrap->initDevMem(size))
+    if (m_pCUDA_wrap->initDevMem(size, jacobi_filter))
         cudaStatus = cudaSuccess;
     if (cudaStatus != cudaSuccess)
         fprintf(stderr, "cudaMalloc failed!");
 
 
-    if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(m_pCUDA_wrap->m_dev_Ux[0], Ux, size * sizeof(double), cudaMemcpyHostToDevice);
-    if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(m_pCUDA_wrap->m_dev_Uy[0], Uy, size * sizeof(double), cudaMemcpyHostToDevice);
+    m_pCUDA_wrap->copyHostToDeviceMem(size, Ux, Uy, pressure, dye);
+
     int frames_run = 0;
     int frame_index = 0;
     int p_frame_index = 0;
+    int p_advection_frame_index = 0;
+    int dye_frame_index = 0;
     if (cudaStatus == cudaSuccess) {
-        int cache_full_len = getCacheLen();
-        m_pPyTrans->init("../Dat/frames.dat", cache_full_len, 0);
+        int num_cache_headers = 0;
+        int cache_full_len = getCacheLen(num_cache_headers);
+        m_pPyTrans->init("Dat/frames.dat", cache_full_len, num_cache_headers);
         do {
+			s_force force = m_pFluid_animate->updateForce(frames_run);
+			s_force dye_brush = m_pFluid_animate->updateDye(frames_run);
             runFrame(
-                m_pCUDA_wrap->m_dev_Ux, 
-                m_pCUDA_wrap->m_dev_Uy, 
-                m_pCUDA_wrap->m_dev_p, 
-                m_pCUDA_wrap->m_dev_scratch, 
                 frame_index, 
                 p_frame_index, 
-                force);
-            m_pPyTrans->resetCache();//AndWrite();
+                p_advection_frame_index, 
+                dye_frame_index,
+                force, 
+                dye_brush);
+            m_pPyTrans->resetAndWrite();
+            //m_pPyTrans->resetCache();
             frames_run++;
+            m_current_frame = frames_run;
         } while (frames_run <= sim_frames);
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess)
             fprintf(stderr, "Cuda kernel launches failed:%s\n", cudaGetErrorString(cudaStatus));
         m_pPyTrans->release();
     }
-    if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(Ux, m_pCUDA_wrap->m_dev_Ux[frame_index], size * sizeof(double), cudaMemcpyDeviceToHost);
-    if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(Uy, m_pCUDA_wrap->m_dev_Uy[frame_index], size * sizeof(double), cudaMemcpyDeviceToHost);
-    if (cudaStatus == cudaSuccess)
-        cudaStatus = cudaMemcpy(pressure, m_pCUDA_wrap->m_dev_p[p_frame_index], size * sizeof(double), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess)
-        fprintf(stderr, "cudaMemcpy failed!");
+    //m_pCUDA_wrap->add_full_grid(m_pCUDA_wrap->m_dev_p[p_frame_index], m_pCUDA_wrap->m_dev_p0[p_advection_frame_index]);
+    m_pCUDA_wrap->copyDeviceToHostMem(size, Ux, Uy, pressure, dye, frame_index, p_frame_index, dye_frame_index);
 
     m_pCUDA_wrap->releaseDevMem();
     if (cudaStatus != cudaSuccess) {
@@ -117,67 +128,145 @@ int Test::runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int 
     }
     return 0;
 }
-void Test::runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force) {
+void Test::runTestAdvectionFrame(
+    int& frame_index, 
+    int& p_frame_index,
+	int& p_advection_frame_index,
+	int& dye_frame_index,
+    s_force& force,
+    s_force& dye_brush) 
+{
     int frame_in_index = frame_index;
     int p_frame_in_index = p_frame_index;
-	send_frame_to_host(m_Ux, Ux[frame_index]);
-	send_frame_to_host(m_Uy, Uy[frame_index]);
-	send_frame_to_host(m_p, p[p_frame_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::start_frame_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::start_frame_code);
-    m_pCUDA_wrap->advection(Ux, Uy, frame_in_index);
+    int p_advection_frame_in_index = p_advection_frame_index;
+	int dye_frame_in_index = dye_frame_index;
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_dye[dye_frame_in_index]);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::start_frame_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::start_frame_code);
+    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::start_frame_code);
+    m_pCUDA_wrap->advection(frame_in_index, dye_frame_in_index);
     reverseFrameIndex(frame_in_index);
-    send_frame_to_host(m_Ux, Ux[frame_in_index]);
-    send_frame_to_host(m_Uy, Uy[frame_in_index]);
+    reverseFrameIndex(dye_frame_in_index);
+    for (int corner_i = 0; corner_i < 4; corner_i++) {
+        send_frame_to_host(m_host_scratch_int, m_pCUDA_wrap->advection_indexes[corner_i]);
+		m_pPyTrans->cacheGrid(m_host_scratch_int, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Advection_indexes_code, corner_i, n_PyTrans::after_advection_code);
+		send_frame_to_host(m_host_scratch[corner_i], m_pCUDA_wrap->advection_dist[corner_i]);
+        m_pPyTrans->cacheGrid(m_host_scratch[corner_i], m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Advection_dist_code, corner_i, n_PyTrans::after_advection_code);
+    }
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+	send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_dye[dye_frame_in_index]);
     m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_advection_code);
     m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_advection_code);
-    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::start_frame_code);
-    m_pCUDA_wrap->compute_pressure(Ux, Uy, p, scratch, frame_in_index, p_frame_in_index);
-    reverseFrameIndex(p_frame_in_index);
-	send_frame_to_host(m_p, p[p_frame_in_index]);
-    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::after_advection_code);
-    m_pCUDA_wrap->subtract_pressure_gradient(Ux, Uy, p, frame_in_index, p_frame_in_index);
-    reverseFrameIndex(frame_in_index);
-    send_frame_to_host(m_Ux, Ux[frame_index]);
-    send_frame_to_host(m_Uy, Uy[frame_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::after_advection_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::after_advection_code);
-    //m_pCUDA_wrap->viscous_diffusion(Ux, Uy, frame_in_index);
-    //reverseFrameIndex(frame_in_index);
+    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::after_advection_code);
     if (force.active) {
-        m_pCUDA_wrap->apply_force(Ux, Uy, frame_in_index, force);
+        m_pCUDA_wrap->m_num_jacobi_loops = m_pCUDA_wrap->m_max_jacobi_force_loops;
+        m_pCUDA_wrap->apply_force(frame_in_index, dye_frame_in_index, force, dye_brush);
         reverseFrameIndex(frame_in_index);
-    }
-    send_frame_to_host(m_Ux, Ux[frame_index]);
-    send_frame_to_host(m_Uy, Uy[frame_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_force_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
-    compute_pressure(Ux, Uy, p, scratch, frame_in_index, p_frame_in_index);
-    reverseFrameIndex(p_frame_in_index);
-	s_frame_index test_frame_i = getFrameIndex(frame_in_index);
-	m_pCUDA_wrap->gradient(Ux[test_frame_i.out], Uy[test_frame_i.out], p, frame_in_index);
-	send_frame_to_host(m_Ux, Ux[frame_index]);
-	send_frame_to_host(m_Uy, Uy[frame_index]);
-	m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::gradP_code, n_PyTrans::X_code, n_PyTrans::after_pressure_code);
-	m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::gradP_code, n_PyTrans::Y_code, n_PyTrans::after_pressure_code);
-    m_pCUDA_wrap->subtract_pressure_gradient(Ux, Uy, p, frame_in_index, p_frame_in_index);
-    reverseFrameIndex(frame_in_index);
-    send_frame_to_host(m_Ux, Ux[frame_index]);
-    send_frame_to_host(m_Uy, Uy[frame_index]);
-    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::end_frame_code);
-    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::end_frame_code);
-    /*14 cachegrid ops of (grid_width*grid_height + header each) */
+        reverseFrameIndex(dye_frame_in_index);
+        send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+        send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+        send_frame_to_host(m_host_scratch[0], m_pCUDA_wrap->m_dev_dye[dye_frame_in_index]); 
+        m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_force_code);
+        m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
+        m_pPyTrans->cacheGrid(m_host_scratch[0], m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::after_force_code);
+    }else
+        m_pCUDA_wrap->m_num_jacobi_loops = m_pCUDA_wrap->m_max_jacobi_loops;
     frame_index = frame_in_index;
     p_frame_index = p_frame_in_index;
+    p_advection_frame_index = p_advection_frame_in_index;
+	dye_frame_index = dye_frame_in_index;
+    /*14 cachegrid ops of (grid_width*grid_height + header each) */
 }
-void Test::compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index) {
-    m_pCUDA_wrap->divergence(scratch, Ux[frame_index], Uy[frame_index]);
-	send_frame_to_host(m_p, scratch);
+void Test::runFrame(
+    int& frame_index,
+    int& p_frame_index,
+    int& p_advection_frame_index,
+    int& dye_frame_index,
+    s_force& force,
+    s_force& dye_brush)
+{
+    int frame_in_index = frame_index;
+    int p_frame_in_index = p_frame_index;
+    int p_advection_frame_in_index = p_advection_frame_index;
+    int dye_frame_in_index = dye_frame_index;
+    //send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    //send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    //send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_p0[p_advection_frame_in_index]);
+    //m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::start_frame_code);
+    //m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::start_frame_code);
+    m_pCUDA_wrap->advection(frame_in_index, dye_frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    reverseFrameIndex(dye_frame_in_index);
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_dye[dye_frame_in_index]);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_advection_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_advection_code);
+    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::after_advection_code);
+    //m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::start_frame_code);
+    m_pCUDA_wrap->compute_pressure(m_pCUDA_wrap->m_dev_p, frame_in_index, p_advection_frame_in_index);
+    reverseFrameIndex(p_advection_frame_in_index);
+    send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_p[p_advection_frame_in_index]);
+    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::after_advection_code);
+    m_pCUDA_wrap->subtract_pressure_gradient(m_pCUDA_wrap->m_dev_p, frame_in_index, p_advection_frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::after_advection_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::after_advection_code);
+    m_pCUDA_wrap->viscous_diffusion(frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_viscous_diff_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_viscous_diff_code);
+    if (force.active) {
+        m_pCUDA_wrap->m_num_jacobi_loops = m_pCUDA_wrap->m_max_jacobi_force_loops;
+        m_pCUDA_wrap->apply_force(frame_in_index, dye_frame_in_index, force, dye_brush);
+        reverseFrameIndex(frame_in_index);
+        reverseFrameIndex(dye_frame_in_index);
+        send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+        send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+        send_frame_to_host(m_host_scratch[0], m_pCUDA_wrap->m_dev_dye[dye_frame_in_index]);
+        m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::X_code, n_PyTrans::after_force_code);
+        m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::W_code, n_PyTrans::Y_code, n_PyTrans::after_force_code);
+        m_pPyTrans->cacheGrid(m_host_scratch[0], m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::after_force_code);
+    }
+    else
+        m_pCUDA_wrap->m_num_jacobi_loops = m_pCUDA_wrap->m_max_jacobi_loops;
+    m_pCUDA_wrap->compute_pressure(m_pCUDA_wrap->m_dev_p0, frame_in_index, p_frame_in_index);
+    reverseFrameIndex(p_frame_in_index);
+    send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_p0[p_frame_in_index]);
+    m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::after_force_code);
+    //
+    //s_frame_index test_frame_i = getFrameIndex(frame_in_index);
+    //m_pCUDA_wrap->laplacian(scratch, p, Ux[test_frame_i.in], Uy[test_frame_i.in], frame_in_index);
+    //send_frame_to_host(m_Ux, Ux[test_frame_i.out]);
+    //send_frame_to_host(m_p, scratch);
+    //m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::gradP_code, n_PyTrans::X_code, n_PyTrans::after_pressure_code);
+    //m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::LapP_code, n_PyTrans::Scalar_code, n_PyTrans::after_pressure_code);
+    //
+    m_pCUDA_wrap->subtract_pressure_gradient(m_pCUDA_wrap->m_dev_p0, frame_in_index, p_frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    send_frame_to_host(m_Ux, m_pCUDA_wrap->m_dev_Ux[frame_in_index]);
+    send_frame_to_host(m_Uy, m_pCUDA_wrap->m_dev_Uy[frame_in_index]);
+    m_pPyTrans->cacheGrid(m_Ux, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::end_frame_code);
+    m_pPyTrans->cacheGrid(m_Uy, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::end_frame_code);
+    frame_index = frame_in_index;
+    p_frame_index = p_frame_in_index;
+    p_advection_frame_index = p_advection_frame_in_index;
+    dye_frame_index = dye_frame_in_index;
+    /*14 cachegrid ops of (grid_width*grid_height + header each) */
+}
+void Test::compute_pressure(double* p[], int frame_index, int p_frame_index) {
+    m_pCUDA_wrap->divergence(m_pCUDA_wrap->m_dev_scratch, m_pCUDA_wrap->m_dev_Ux[frame_index], m_pCUDA_wrap->m_dev_Uy[frame_index]);
+	send_frame_to_host(m_p, m_pCUDA_wrap->m_dev_scratch);
 	m_pPyTrans->cacheGrid(m_p, m_pCUDA_wrap->grid_width, m_pCUDA_wrap->grid_height, m_current_frame, n_PyTrans::DivW_code, n_PyTrans::Scalar_code, n_PyTrans::after_force_code);
     /* jacobi with \alpha = -\deltax^2 and b = \frac{1}{\deltat} \nabla \cdot \vec{u} and \beta = 4 */
-    static double alpha = -m_pCUDA_wrap->delta_x * m_pCUDA_wrap->delta_x;
-    static double rbeta = 0.25;
-    jacobi_run(p, scratch, Ux[frame_index], Uy[frame_index], p_frame_index, alpha, rbeta);
+    jacobi_run(p, m_pCUDA_wrap->m_dev_scratch, m_pCUDA_wrap->m_dev_Ux[frame_index], m_pCUDA_wrap->m_dev_Uy[frame_index], p_frame_index);
     /* 1 cache grid ops grid_width*grid_height + header  */
 }
 void Test::jacobi_loop(
@@ -192,11 +281,11 @@ void Test::jacobi_loop(
     int stack_index)
 {
     s_frame_index frame_i = getFrameIndex(0);
-    int num_jacobi_loops = 1;
+    int jacobi_loops_index = 1;
     do {
         m_pCUDA_wrap->jacobi_frame(X[frame_i.out], X[frame_i.in], b, Wx, Wy, alpha, rbeta, numBlocks_s, numThreads_s);
         swapFrameIndexes(frame_i);/*results are now at frame_i.in */
-        if ((num_jacobi_loops-1) % m_loop_modulus_divider == 0) {
+        if ((jacobi_loops_index-1) % m_loop_modulus_divider == 0) {
             int frame_width = numBlocks_s * numThreads_s;
             int frame_height = frame_width;
             int frame_len = frame_width * frame_height;
@@ -209,11 +298,11 @@ void Test::jacobi_loop(
                 n_PyTrans::P_code,
                 n_PyTrans::Scalar_code,
                 n_PyTrans::jacobi_loop_frame_code,
-                num_jacobi_loops,
+                jacobi_loops_index,
                 stack_index);
         }
-        num_jacobi_loops++;
-    } while (num_jacobi_loops < m_pCUDA_wrap->max_jacobi_loops);
+        jacobi_loops_index++;
+    } while (jacobi_loops_index < m_pCUDA_wrap->m_num_jacobi_loops);
     fixFramePointers(X, frame_i, 0);/* results are now in X[0] */
     /** (max_jacobi_loops/loop_modulus_divider)*(header + cur_frame_len) **/
 }
@@ -222,9 +311,7 @@ void Test::jacobi_run(
     const double* b,
     const double* Wx,
     const double* Wy,
-    int frame_index,
-    const double& alpha,
-    const double& rbeta)
+    int frame_index)
 {
     s_frame_index frame_i = getFrameIndex(frame_index);
     int original_frame_in_index = frame_i.in;
@@ -236,26 +323,28 @@ void Test::jacobi_run(
             double* frame_swap_ptrs[] = { m_pCUDA_wrap->jacobi_scratch_stack[i_stack], m_pCUDA_wrap->jacobi_scratch };
             int numBlocks_s = m_pCUDA_wrap->jacobi_stack_numBlocks[i_stack];
             int numThreads_s = m_pCUDA_wrap->jacobi_stack_numThreads[i_stack];
-            jacobi_loop(frame_swap_ptrs, m_pCUDA_wrap->b_stack[i_stack], alpha, rbeta, numBlocks_s, numThreads_s, m_pCUDA_wrap->Wx_stack[i_stack], m_pCUDA_wrap->Wy_stack[i_stack], i_stack);
+			double alpha = m_pCUDA_wrap->jacobi_alpha[i_stack];
+            jacobi_loop(frame_swap_ptrs, m_pCUDA_wrap->b_stack[i_stack], alpha, m_pCUDA_wrap->jacobi_rbeta, numBlocks_s, numThreads_s, m_pCUDA_wrap->Wx_stack[i_stack], m_pCUDA_wrap->Wy_stack[i_stack], i_stack);
 			s_WH wh = m_pCUDA_wrap->jacobi_stack_WH[i_stack];
-            send_frame_to_host(m_p, frame_swap_ptrs[0], wh.width * wh.height);
+            int frame_width_height = wh.width;
+            m_pCUDA_wrap->jacobi_send_frame_down_stack(frame_swap_ptrs[0], frame_width_height, i_stack + 1);
+            send_frame_to_host(m_p, frame_swap_ptrs[0], frame_width_height*frame_width_height);
             m_pPyTrans->cacheGrid(
                 m_p,
-                wh.width,
-                wh.height,
+                frame_width_height,
+                frame_width_height,
                 m_current_frame,
                 n_PyTrans::P_code,
                 n_PyTrans::Scalar_code,
-                n_PyTrans::jacobi_frame_code,
-                m_pCUDA_wrap->max_jacobi_loops - 1,
+                n_PyTrans::jacobi_send_down_code,
+                0,
                 i_stack);
-            int frame_width_height = numBlocks_s * numThreads_s;
-            m_pCUDA_wrap->jacobi_send_frame_down_stack(frame_swap_ptrs[0], frame_width_height, i_stack + 1);
             /* (jacobi_stack_height-1) * (varying stack width*heights)*header_len **/
         }
         m_pCUDA_wrap->copyMemory_for_standard_grid(X[0], m_pCUDA_wrap->jacobi_scratch_stack[jacobi_stack_max_index]);
     }
-    jacobi_loop(X, b, alpha, rbeta, m_pCUDA_wrap->numBlocks_side, m_pCUDA_wrap->numThreads_side, Wx, Wy,0);/* results are in X[0]*/
+	static const double alpha_base = -m_pCUDA_wrap->delta_x * m_pCUDA_wrap->delta_x;
+    jacobi_loop(X, b, alpha_base, m_pCUDA_wrap->jacobi_rbeta, m_pCUDA_wrap->numBlocks_side, m_pCUDA_wrap->numThreads_side, Wx, Wy,0);/* results are in X[0]*/
     /* jacobi_stack_height*(max_jacobi_loops/loop_modulus_divider)*(header + full_stack_len) */
 	send_frame_to_host(m_p, X[0]);
     m_pPyTrans->cacheGrid(
@@ -266,7 +355,7 @@ void Test::jacobi_run(
         n_PyTrans::P_code,
         n_PyTrans::Scalar_code,
         n_PyTrans::jacobi_frame_code,
-        m_pCUDA_wrap->max_jacobi_loops - 1,
+        m_pCUDA_wrap->m_num_jacobi_loops - 1,
         0);
     /* jacobi_stack_height*header_len + full jacobi stack len */
     frame_i.in = 1;
@@ -331,7 +420,7 @@ void Test::send_jacobi_stacks_to_cache(int jacobi_frame) {
 	}
     /* 4 * (header len + full jacobi_stack len) */
 }
-int Test::getCacheLen() {
+int Test::getCacheLen(int& num_headers) {
     /* 14 full size from runFrame */
        /*compute pressure-> 1 full size frame*/
           /*jacobi run -> jacobi_stack_height * header + full_jacobi_stack_len */
@@ -344,17 +433,23 @@ int Test::getCacheLen() {
        full_jacobi_stack_len = min_stack_len*(1 + 4^2 +4^3 +.. 4^N)
        S_N = 1+r^2+r^3+..r^N = (1-r^{N+1})/(1-r)
        full_jacobi_stack_len = min_stack_len* \frac{1-(4^{N})*4}{-3} */
-	int full_size_frame_len = m_pCUDA_wrap->grid_width * m_pCUDA_wrap->grid_height + n_PyTrans::obj_header_len;
-	int cache_len = 14 * full_size_frame_len; /* dumps directly from runframe */
+	int full_size_frame_len = m_pCUDA_wrap->grid_width * m_pCUDA_wrap->grid_height;
+	int cache_len = 17 * full_size_frame_len; /* dumps directly from runframe */
+    num_headers = 17;
     cache_len += full_size_frame_len; /*1 frame direclty in compute pressure*/
+    num_headers += 1;
 
-    int min_sized_stack_frame_len_data_only = m_pCUDA_wrap->jacobi_scratch_stack_sizes[0];
-	int _4_pow_N = (m_pCUDA_wrap->jacobi_scratch_stack_sizes[m_pCUDA_wrap->jacobi_stack_height - 1]) / min_sized_stack_frame_len_data_only;
-	int full_stack_frame_sum_len_data_only = min_sized_stack_frame_len_data_only * (1 - _4_pow_N * 4) / -3;
+    //int min_sized_stack_frame_len_data_only = m_pCUDA_wrap->jacobi_scratch_stack_sizes[0];
+	//int _4_pow_N = (m_pCUDA_wrap->jacobi_scratch_stack_sizes[m_pCUDA_wrap->jacobi_stack_height - 1]) / min_sized_stack_frame_len_data_only;
+	//int full_stack_frame_sum_len_data_only = min_sized_stack_frame_len_data_only * (1 - _4_pow_N * 4) / -3;
 
-    cache_len += 4 * (m_pCUDA_wrap->jacobi_stack_height * n_PyTrans::obj_header_len + full_stack_frame_sum_len_data_only);
-    int num_cache_writes_per_jacobi_loop = m_pCUDA_wrap->max_jacobi_loops / m_loop_modulus_divider;
-    cache_len += num_cache_writes_per_jacobi_loop * (m_pCUDA_wrap->jacobi_stack_height * n_PyTrans::obj_header_len + full_stack_frame_sum_len_data_only);
+    //cache_len += 4 * (full_stack_frame_sum_len_data_only);
+    //num_headers += 4 * m_pCUDA_wrap->jacobi_stack_height;
+    //int num_cache_writes_per_jacobi_loop = m_pCUDA_wrap->m_max_jacobi_force_loops / m_loop_modulus_divider;
+    //cache_len += num_cache_writes_per_jacobi_loop * (full_stack_frame_sum_len_data_only);
+    //num_headers += num_cache_writes_per_jacobi_loop * m_pCUDA_wrap->jacobi_stack_height;
+    //cache_len += (full_stack_frame_sum_len_data_only);
+    //num_headers += m_pCUDA_wrap->jacobi_stack_height;
     
     return cache_len;
 }
@@ -416,4 +511,8 @@ void Test::send_frame_to_host(double* pFrame, const double* dev_data) {
 }
 void Test::send_frame_to_host(double* pFrame, const double* dev_data, int dat_len) {
     cudaError_t cudaStatus = cudaMemcpy(pFrame, dev_data, dat_len * sizeof(double), cudaMemcpyDeviceToHost);
+}
+void Test::send_frame_to_host(int* pFrame, const int* dev_data){
+    int size = m_pCUDA_wrap->grid_width * m_pCUDA_wrap->grid_height;
+    cudaError_t cudaStatus = cudaMemcpy(pFrame, dev_data, size * sizeof(int), cudaMemcpyDeviceToHost);
 }

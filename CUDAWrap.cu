@@ -9,8 +9,7 @@ CUDAWrap::CUDAWrap(
 	int jacobi_minBlocks_side_dim,
 	int jacobi_minThreads_side_dim,
     int in_max_jacobi_loops,
-	int in_max_jacobi_force_loops,
-	double dye_Drho
+	int in_max_jacobi_force_loops
 ) : numBlocks_side(blocks_side_dim),
     numThreads_side(threads_side_dim),
     grid_width(blocks_side_dim * threads_side_dim),
@@ -23,7 +22,6 @@ CUDAWrap::CUDAWrap(
     m_max_jacobi_loops(in_max_jacobi_loops), 
 	m_max_jacobi_force_loops(in_max_jacobi_force_loops),
 	m_num_jacobi_loops(in_max_jacobi_loops),
-    m_dye_Drho(dye_Drho),
     jacobi_rbeta(0.25)
 {
     for(int i=0; i<2; i++){
@@ -123,10 +121,8 @@ CUDAWrap::~CUDAWrap() {
         delete[] Wy_stack;
     }
 }
-int CUDAWrap::runCUDA(double* Ux, double* Uy, double* pressure, double* dye, s_force& force, int sim_frames, double jacobi_filter[]) {
-    return runNV(Ux, Uy, pressure, pressure, force, sim_frames, jacobi_filter);
-}
-int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, double* dye, s_force& force, int sim_frames, double jacobi_filter[]) {
+int CUDAWrap::runCUDA(double* Ux, double* Uy, double* pressure, double* dye, int sim_frames, double jacobi_filter[], FluidAnimate* m_pfluid_animate) {
+
     unsigned int size = grid_width * grid_height;
     cudaError_t cudaStatus = cudaSuccess;
     if (initDevMem(size, jacobi_filter))
@@ -143,14 +139,17 @@ int CUDAWrap::runNV(double* Ux, double* Uy, double* pressure, double* dye, s_for
 	int dye_frame_index = 0;
     if (cudaStatus == cudaSuccess) {
         do {
-            runFrame(frame_index, p_frame_index, p_advection_frame_index, dye_frame_index, force);
+			s_force force = m_pfluid_animate->updateForce(frames_run);
+			s_force dye_brush = m_pfluid_animate->updateDye(frames_run);
+            runFrame(frame_index, p_frame_index, p_advection_frame_index, dye_frame_index, force, dye_brush);
             frames_run++;
         } while (frames_run <= sim_frames);
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess)
             fprintf(stderr, "Cuda kernel launches failed:%s\n", cudaGetErrorString(cudaStatus));
     }
-    copyDeviceToHostMem(size, Ux, Uy, pressure, dye, frame_index, p_frame_index, dye_frame_index);
+    add_full_grid(m_dev_p[p_advection_frame_index], m_dev_p0[p_frame_index]);
+    copyDeviceToHostMem(size, Ux, Uy, pressure, dye, frame_index, p_advection_frame_index, dye_frame_index);
 
     releaseDevMem();
     if (cudaStatus != cudaSuccess) {
@@ -164,43 +163,35 @@ void CUDAWrap::runFrame(
     int& p_frame_index,
     int& p_advection_frame_index,
 	int& dye_frame_index,
-    s_force& force)
+    s_force& force,
+    s_force& dye_brush)
 {
     int frame_in_index = frame_index;
     int p_frame_in_index = p_frame_index;
     int p_advection_frame_in_index = p_advection_frame_index;
     int dye_frame_in_index = dye_frame_index;
+    advection(frame_in_index, dye_frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    reverseFrameIndex(dye_frame_in_index);
+    compute_pressure(m_dev_p, frame_in_index, p_advection_frame_in_index);
+    reverseFrameIndex(p_advection_frame_in_index);
+    subtract_pressure_gradient(m_dev_p, frame_in_index, p_advection_frame_in_index);
+    reverseFrameIndex(frame_in_index);
+    viscous_diffusion(frame_in_index);
+    reverseFrameIndex(frame_in_index);
     if (force.active) {
         m_num_jacobi_loops = m_max_jacobi_force_loops;
-        apply_force(frame_in_index, dye_frame_in_index, force);
+        apply_force(frame_in_index, dye_frame_in_index, force, dye_brush);
         reverseFrameIndex(frame_in_index);
 		reverseFrameIndex(dye_frame_in_index);
-        compute_pressure(m_dev_p0, frame_in_index, p_frame_in_index);
-        reverseFrameIndex(p_frame_in_index);
-        subtract_pressure_gradient(m_dev_p0, frame_in_index, p_frame_in_index);
-        reverseFrameIndex(frame_in_index);
-        advection(frame_in_index, dye_frame_in_index);
-        reverseFrameIndex(frame_in_index);
-		reverseFrameIndex(dye_frame_in_index);
-        compute_pressure(m_dev_p, frame_in_index, p_advection_frame_in_index);
-        reverseFrameIndex(p_advection_frame_in_index);
-        subtract_pressure_gradient(m_dev_p, frame_in_index, p_advection_frame_in_index);
-        reverseFrameIndex(frame_in_index);
-        viscous_diffusion(frame_in_index);
-        reverseFrameIndex(frame_in_index);
-		m_num_jacobi_loops = m_max_jacobi_loops;
     }
     else {
-        advection(frame_in_index, dye_frame_in_index);
-        reverseFrameIndex(frame_in_index);
-		reverseFrameIndex(dye_frame_in_index);
-        compute_pressure(m_dev_p, frame_in_index, p_advection_frame_in_index);
-        reverseFrameIndex(p_advection_frame_in_index);
-        subtract_pressure_gradient(m_dev_p, frame_in_index, p_advection_frame_in_index);
-        reverseFrameIndex(frame_in_index);
-        viscous_diffusion(frame_in_index);
-        reverseFrameIndex(frame_in_index);
+        m_num_jacobi_loops = m_max_jacobi_loops;
     }
+    compute_pressure(m_dev_p0, frame_in_index, p_frame_in_index);
+    reverseFrameIndex(p_frame_in_index);
+    subtract_pressure_gradient(m_dev_p0, frame_in_index, p_frame_in_index);
+    reverseFrameIndex(frame_in_index);
     frame_index = frame_in_index;
     p_frame_index = p_frame_in_index;
     p_advection_frame_index = p_advection_frame_in_index;
@@ -249,6 +240,8 @@ void CUDAWrap::advection(int frame_index, int dye_frame_index) {
         advection_dist[2],
         advection_dist[3]);
 	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess)
+		fprintf(stderr, "advection_Core kernel launch failed:%s\n", cudaGetErrorString(cudaStatus));
 }
 void CUDAWrap::viscous_diffusion(int frame_index) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
@@ -267,14 +260,17 @@ void CUDAWrap::viscous_diffusion(int frame_index) {
 		grid_height);
 	cudaError_t cudaStatus = cudaDeviceSynchronize();
 }
-void CUDAWrap::apply_force(int frame_index, int dye_frame_index, s_force& force) {
+void CUDAWrap::apply_force(int frame_index, int dye_frame_index, s_force& force, s_force& dye_brush) {
     dim3 numBlocks(numBlocks_side, numBlocks_side);
     dim3 numThreads(numThreads_side, numThreads_side);
     s_frame_index frame_i = getFrameIndex(frame_index);
     s_frame_index dye_frame_i = getFrameIndex(dye_frame_index);
     double center_i = static_cast<double>(force.i);
     double center_j = static_cast<double>(force.j);
+	double dye_center_i = static_cast<double>(dye_brush.i);
+	double dye_center_j = static_cast<double>(dye_brush.j);
     double2 center = make_double2(center_i, center_j);
+	double2 dye_center = make_double2(dye_center_i, dye_center_j);
     double2 Force = make_double2(force.Fx_c, force.Fy_c);
     applyForce_Core << <numBlocks, numThreads >> > (
         m_dev_Ux[frame_i.out],
@@ -285,9 +281,11 @@ void CUDAWrap::apply_force(int frame_index, int dye_frame_index, s_force& force)
 		m_dev_dye[dye_frame_i.in],
         center,
         Force,
-        m_dye_Drho,
+        dye_center,
+        dye_brush.Fx_c,
         delta_t,
         force.inv_Rsqrd,
+		dye_brush.inv_Rsqrd,
         grid_width);
     cudaError_t cudaStatus = cudaDeviceSynchronize();
 }

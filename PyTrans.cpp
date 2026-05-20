@@ -200,6 +200,7 @@ bool n_PyTrans::streamCtoD(int len, const char chs[], double Fs[], int char_offs
 	return true;
 }
 PyTrans::PyTrans() :
+	m_file_opened(false),
 	m_total_file_len(0),
 	m_num_caches_written(0),
 	m_num_grid_headers_cached(0),
@@ -264,12 +265,15 @@ bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int nu
 	}
 	if (total_stream_len_in_doubles <= 0 && max_img_size_in_pix <= 0)
 		retval = false;
-	if(retval)
+	if (retval) {
 		retval = writeFileHeader();
+		m_file_opened = true;
+	}
 	return retval;
 }
 
 void PyTrans::release() {
+	m_file_opened = false;
 	m_num_caches_written = 0;
 	m_num_grid_headers_cached = 0;
 	m_num_image_headers_cached = 0;
@@ -313,6 +317,36 @@ bool PyTrans::cacheGrid(
 		axis_code, 
 		start_end_code, 
 		number_of_loops, 
+		jacobi_frame,
+		jacobi_stack_index,
+		m_culmative_stream_len);
+	m_culmative_stream_len += new_cache_len;
+	m_num_grid_headers_cached++;
+	return retVal;
+}
+bool PyTrans::cacheGrid(
+	const int grid_vals[],
+	int grid_width,
+	int grid_height,
+	int number_of_loops,
+	int32_t label_code,
+	int32_t axis_code,
+	int32_t start_end_code,
+	int jacobi_frame,
+	int jacobi_stack_index
+) {
+	int new_cache_len = getGridStreamLenInt(grid_width, grid_height);
+	if ((new_cache_len + m_culmative_stream_len) > m_culmative_stream_len_max)
+		return false;
+	bool retVal = sendGrid(
+		m_culmative_stream,
+		grid_vals,
+		grid_width,
+		grid_height,
+		label_code,
+		axis_code,
+		start_end_code,
+		number_of_loops,
 		jacobi_frame,
 		jacobi_stack_index,
 		m_culmative_stream_len);
@@ -372,6 +406,8 @@ void PyTrans::resetCache() {
 	m_num_image_headers_cached = 0;
 }
 bool PyTrans::resetAndWrite() {
+	if(!m_file_opened)
+		return false;
 	cacheHeader();
 	bool good_write = writeBinary();
 	resetCache();
@@ -474,9 +510,51 @@ bool PyTrans::sendGrid(
 	int data_stream_offset = m_header_len + ch_stream_offset;
 	return n_PyTrans::streamDtoC(len, grid_vals, ch_stream, data_stream_offset);
 }
+bool PyTrans::sendGrid(
+	char ch_stream[],
+	const int grid_vals[],
+	int grid_width,
+	int grid_height,
+	int32_t label_code,
+	int32_t axis_code,
+	int32_t start_end_code,
+	int number_of_loops,
+	int jacobi_frame,
+	int jacobi_stack_index,
+	int ch_stream_offset,
+	int ch_stream_len
+) {
+	if (ch_stream == nullptr)
+		return false;
+	if (ch_stream_len >= 0)
+		if (!(getGridStreamLenInt(grid_width, grid_height) == ch_stream_len))
+			return false;
+	sendHeader(
+		ch_stream,
+		n_PyTrans::int_grid_code,
+		label_code,
+		axis_code,
+		start_end_code,
+		number_of_loops,
+		jacobi_frame,
+		grid_width,
+		grid_height,
+		jacobi_stack_index,
+		0.f,
+		0.f,
+		ch_stream_offset);
+	int len = grid_width * grid_height;
+	int data_stream_offset = m_header_len + ch_stream_offset;
+	return n_PyTrans::streamItoC(len, grid_vals, ch_stream, data_stream_offset);
+}
 int PyTrans::getGridStreamLen(int grid_width, int grid_height) {
 	int d_len = grid_width * grid_height;
 	int char_len = n_PyTrans::sizeCharFromL(d_len);
+	return char_len + m_header_len;
+}
+int PyTrans::getGridStreamLenInt(int grid_width, int grid_height) {
+	int i_len = grid_width * grid_height;
+	int char_len = n_PyTrans::sizeCharFromI(i_len);
 	return char_len + m_header_len;
 }
 bool PyTrans::sendImage(

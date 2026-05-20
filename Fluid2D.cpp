@@ -1,24 +1,61 @@
 #include "Fluid2D.h"
 
 Fluid2D::Fluid2D(
+	double mouse_max_delta,
+	double mouse_min_delta,
+	int sim_frames,
+	int num_sims,
+	int max_force_frame_duration,
+	int force_decay_frames,
+	int force_decay_factor,
+	int max_dye_frames_duration,
+	double in_delta_t,
+	double in_delta_x,
+	double in_nu,
 	int blocks_side_dim,
 	int threads_side_dim,
-	int sim_frames,
+	int jacobi_minBlocks_side_dim,
+	int jacobi_minThreads_side_dim,
+	int in_max_jacobi_loops,
+	int in_max_jacobi_force_loops,
 	int filter_sigma
 ) : 
-	m_CUDA_wrap(blocks_side_dim, threads_side_dim),
+	m_CUDA_wrap(
+		blocks_side_dim, 
+		threads_side_dim, 
+		in_delta_t, 
+		in_delta_x, 
+		in_nu, 
+		jacobi_minBlocks_side_dim, 
+		jacobi_minThreads_side_dim, 
+		in_max_jacobi_loops, 
+		in_max_jacobi_force_loops),
+	m_fluid_animate(max_force_frame_duration, force_decay_frames, force_decay_factor, max_dye_frames_duration),
 	m_filter(filter_sigma),
-	m_frame_cnt(0),
-	m_blocks_side_dim(blocks_side_dim), 
-	m_threads_side_dim(threads_side_dim), 
-	m_sim_frames(sim_frames) 
+	m_sim_cnt(0),
+	m_mouse_max_delta(mouse_max_delta),
+	m_mouse_min_delta(mouse_min_delta),
+	m_sim_frames(sim_frames),
+	m_num_sims(num_sims),
+	m_mouse_clicks(0)
 {
+	m_images_p = nullptr;
+	m_images_dye = nullptr;
 	m_Ux = nullptr;
 	m_Uy = nullptr;
 	m_p = nullptr;
+	m_dye = nullptr;
 	m_grid_width = blocks_side_dim * threads_side_dim;
 	m_grid_height = m_grid_width;
 	m_size = m_grid_height * m_grid_width;
+	if (m_num_sims > 1 && m_grid_width>2 && m_grid_height>2) {
+		m_images_p = new GenImage * [m_num_sims];
+		m_images_dye = new GenImage * [m_num_sims];
+		for (int i = 0; i < m_num_sims; i++) {
+			m_images_p[i] = new GenImage(m_grid_width,m_grid_height);
+			m_images_dye[i] = new GenImage(m_grid_width,m_grid_height);
+		}
+	}
 	m_Ux = new double[m_size];
 	m_Uy = new double[m_size];
 	m_p = new double[m_size];
@@ -39,14 +76,94 @@ Fluid2D::~Fluid2D() {
 		delete[]m_Uy;
 	if (m_Ux != nullptr)
 		delete[] m_Ux;
+	if(m_images_dye!=nullptr){
+		for (int i = 0; i < m_num_sims; i++) {
+			if(m_images_dye[i]!=nullptr)
+				delete m_images_dye[i];
+		}
+		delete[] m_images_dye;
+	}
+	if(m_images_p!=nullptr){
+		for (int i = 0; i < m_num_sims; i++) {
+			if(m_images_p[i]!=nullptr)
+				delete m_images_p[i];
+		}
+		delete[] m_images_p;
+	}
+}
+
+bool Fluid2D::applyForce(int mouse_end_x, int mouse_end_y, int mouse_center_x, int mouse_center_y, double dye_intensity) {
+	if (mouse_center_x < 0 || mouse_center_y < 0 || m_mouse_min_delta<2) {
+		m_fluid_animate.getForce(0); /*sets the force internally to defaults*/
+		m_fluid_animate.setDye(0); /*sets the dye internally to defaults*/
+		return true;
+	}
+	if(mouse_center_x>=(m_grid_width-m_mouse_min_delta) || mouse_center_y>=(m_grid_height-m_mouse_min_delta))
+		return false;
+	if(mouse_center_x<m_mouse_min_delta || mouse_center_y<m_mouse_min_delta)
+		return false;
+	int mouse_center_offset_x = mouse_center_x - (m_grid_width / 2);
+	int mouse_center_offset_y = mouse_center_y - (m_grid_height / 2);
+	double mouse_dx = static_cast<double>(mouse_end_x - mouse_center_x);
+	double mouse_dy = static_cast<double>(mouse_end_y - mouse_center_y);
+	double mouse_delta = std::sqrt(mouse_dx * mouse_dx + mouse_dy * mouse_dy);
+	if(mouse_delta < m_mouse_min_delta)
+		return false;
+	double mouse_cos = mouse_dx / mouse_delta;
+	bool mouse_sin_positive = (mouse_dy >= 0);
+	double Force_mag = m_fluid_animate.getMaxAllowedForce();
+	if (mouse_delta < m_mouse_max_delta)
+		Force_mag *= mouse_delta / m_mouse_max_delta;
+	m_fluid_animate.getForce(0, 0, mouse_cos, mouse_sin_positive, Force_mag, mouse_center_offset_x, mouse_center_offset_y);
+	bool dye_ok = m_fluid_animate.setDye(0, 0, dye_intensity, mouse_center_offset_x, mouse_center_offset_y);
+	return true & dye_ok;
+}
+bool Fluid2D::initFileOutput(const char* filename) {
+	bool initOK = false;
+	int num_cache_headers = 4 * m_num_sims;
+	int cache_data_len = num_cache_headers * m_size;
+	if(filename==nullptr)
+		initOK = m_pyTrans.init("Dat/frames.dat", cache_data_len, num_cache_headers);
+	else
+		initOK = m_pyTrans.init(filename, cache_data_len, num_cache_headers);
+	return initOK;
+}
+void Fluid2D::releaseFileOutput() {
+	m_pyTrans.release();
+}
+GenImage* Fluid2D::handleMouse() {
+	GenImage* retPtr = nullptr;
+	if (m_mouse_clicks < m_num_sims) {
+		retPtr=getImagePtr_p(m_mouse_clicks);
+	}
+	else if (m_mouse_clicks < 2 * m_num_sims) {
+		retPtr=getImagePtr_dye(m_mouse_clicks - m_num_sims);
+	}
+	else
+		retPtr = getImagePtr_dye(m_num_sims - 1);
+	m_mouse_clicks++;
+	return retPtr;
 }
 
 int Fluid2D::launchCUDA() {
-	s_force force = m_fluid_animate.getForce(m_frame_cnt);
 	double jacobi_filter[g_jacobi_filter_size];
 	m_filter.genFilter(jacobi_filter, BASE_JACOBI_EXPANSION_FILTER_HALF_WH);
-	int launchOK = m_CUDA_wrap.runCUDA(m_Ux, m_Uy, m_p, m_dye, force, m_sim_frames, jacobi_filter);
-	if(launchOK==0)
-		m_frame_cnt += m_sim_frames;
+	int launchOK = 0;
+	for (m_sim_cnt = 0; m_sim_cnt < m_num_sims; m_sim_cnt++) {
+		launchOK = m_CUDA_wrap.runCUDA(m_Ux, m_Uy, m_p, m_dye, m_sim_frames, jacobi_filter, &m_fluid_animate);
+		if (launchOK == 0) {
+			if (m_images_p != nullptr)
+				m_images_p[m_sim_cnt]->genNormalizedImage(m_p);
+			if (m_images_dye != nullptr)
+				m_images_dye[m_sim_cnt]->genNormalizedImage(m_dye);
+			m_pyTrans.cacheGrid(m_Ux, m_grid_width, m_grid_height, m_sim_cnt, n_PyTrans::U_code, n_PyTrans::X_code, n_PyTrans::end_frame_code);
+			m_pyTrans.cacheGrid(m_Uy, m_grid_width, m_grid_height, m_sim_cnt, n_PyTrans::U_code, n_PyTrans::Y_code, n_PyTrans::end_frame_code);
+			m_pyTrans.cacheGrid(m_p, m_grid_width, m_grid_height, m_sim_cnt, n_PyTrans::P_code, n_PyTrans::Scalar_code, n_PyTrans::end_frame_code);
+			m_pyTrans.cacheGrid(m_dye, m_grid_width, m_grid_height, m_sim_cnt, n_PyTrans::Dye_code, n_PyTrans::Scalar_code, n_PyTrans::end_frame_code);
+		}
+		else
+			break;
+	}
+	m_pyTrans.resetAndWrite();
 	return launchOK;
 }

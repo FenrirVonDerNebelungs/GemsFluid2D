@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from scipy.signal import convolve2d
 
@@ -141,3 +142,64 @@ def genReducedStack(baseVal, baseWidth, baseHeight, stack_height): #stack height
         height/=2
         stack.append(filtered_vals)
     return stack
+
+def findij(index, width):
+    j = int( math.floor(index/width))
+    i = int(index) - j*int(width)
+    return i, j
+
+def dispFromIndexDist(i, j, iL, iR, jB, jT, d1_to_L, d2_to_R, d3_to_B, d4_to_T):
+    delta_x = 1.0e-3
+    x_dist = 0.0
+    y_dist = 0.0
+    if iL>=i:
+        x_dist = float(iL-i) 
+        x_dist += d1_to_L 
+    elif iR<=i:
+        x_dist = float(iR-i) 
+        x_dist -= d2_to_R
+    
+    if jB >=j:
+        y_dist = float(jB-j)
+        y_dist += d3_to_B
+    elif jT<=j:
+        y_dist=float(jT-j)
+        y_dist-=d4_to_T
+    x_dist*=delta_x
+    y_dist*=delta_x
+    return x_dist, y_dist
+        
+    
+def dispLocFromIndexes(i1_BL, i2_TL, i3_BR, i4_TR, d1_to_L, d2_to_R, d3_to_B, d4_to_T, width, height):
+    displacements_x = np.zeros(len(i1_BL))
+    displacements_y = np.zeros(len(i1_BL))
+    for j in range(height):
+        for i in range(width):
+            index_ = j*width + i
+            if(i1_BL[index_]>0 and i2_TL[index_]>0 and i3_BR[index_]>0 and i4_TR[index_]>0):
+                iL, jB = findij(i1_BL[index_],width)
+                iR, jT = findij(i4_TR[index_], width) 
+                dL = d1_to_L[index_]
+                dR = d2_to_R[index_]
+                dB = d3_to_B[index_]
+                dT = d4_to_T[index_]  
+                x_dist,y_dist = dispFromIndexDist(i,j,iL,iR,jB,jT,dL,dR,dB,dT)
+                displacements_x[index_]=x_dist
+                displacements_y[index_]=y_dist
+    return displacements_x, displacements_y
+
+def dispLocFromU(Ux, Uy, width, height):
+    delta_x = 1.0e-3
+    delta_t = 1.0e-3
+    displacements_x = np.zeros(len(Ux))
+    displacements_y = np.zeros(len(Uy))
+    for j in range(height):
+        for i in range(width):
+            index_ = j*width+i
+            velocity_x = Ux[index_]
+            velocity_y = Uy[index_]
+            dx = -velocity_x*delta_t
+            dy = -velocity_y*delta_t
+            displacements_x[index_]=dx
+            displacements_y[index_]=dy
+    return displacements_x, displacements_y

@@ -4,7 +4,7 @@
 
 #include "GemsFluid2DWin.h"
 #include "GenImage.h"
-//#include "Fluid2D.h"
+#include "Fluid2D.h"
 #include "Test/Test.h"
 
 #define MAX_LOADSTRING 100
@@ -14,7 +14,7 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 GenImage* g_pGenImage = nullptr; //class used to draw images
-//Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
+Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
 Test* g_pTest = nullptr; //class used to run the fluid simulation
 
 // Forward declarations of functions included in this code module:
@@ -103,17 +103,23 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-	/*g_pFluid2D = new Fluid2D();
+	g_pFluid2D = new Fluid2D();
 	s_WH grid_wh = g_pFluid2D->getGridWidthHeight();
-	g_pFluid2D->launchCUDA();*/
-	g_pTest = new Test();
-	s_WH grid_wh = g_pTest->getGridWidthHeight();
-    g_pTest->runTest();
-    g_pGenImage = g_pTest->getTestImage();//new GenImage(grid_wh.width, grid_wh.height);
+	g_pFluid2D->applyForce();
+	g_pFluid2D->initFileOutput();
+	g_pFluid2D->launchCUDA();
+	g_pFluid2D->releaseFileOutput();
+
+
+	//g_pTest = new Test();
+	//grid_wh = g_pTest->getGridWidthHeight();
+    //g_pTest->runTest();
+    //g_pGenImage = g_pTest->getTestImage();//new GenImage(grid_wh.width, grid_wh.height);
+    g_pGenImage = g_pFluid2D->getImagePtr_dye();
    hInst = hInstance; // Store instance handle in our global variable
-   s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
-   int window_width = blown_grid_wh.width + 6;
-   int window_height = blown_grid_wh.height + 6;
+   //s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
+   int window_width = grid_wh.width;//blown_grid_wh.width + 6;
+   int window_height = grid_wh.height;//blown_grid_wh.height + 6;
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT, 0, window_width, window_height, nullptr, nullptr, hInstance, nullptr);//CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
@@ -130,17 +136,17 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 VOID Release()
 {
-    if (g_pTest != nullptr)
+    /*if (g_pTest != nullptr)
     {
         delete g_pTest;
         g_pTest = nullptr;
-    }
-    /*
+    }*/
+    
     if(g_pFluid2D != nullptr)
     {
         delete g_pFluid2D;
         g_pFluid2D = nullptr;
-	}*/
+	}
 }
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -154,6 +160,8 @@ VOID Release()
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    int last_mouse_button_down_x = -1;
+	int last_mouse_button_down_y = -1;
     switch (message)
     {
     case WM_COMMAND:
@@ -201,15 +209,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
     case WM_LBUTTONDOWN: {
-        int x_click = LOWORD(lParam);
-        int y_click = HIWORD(lParam);
-        g_pGenImage = g_pTest->handleMouse();
-        if(g_pTest->getMessage()!=nullptr)
-            MessageBox(hWnd, g_pTest->getMessage(), L"Active", MB_OK);
+        last_mouse_button_down_x = LOWORD(lParam);
+        last_mouse_button_down_y = HIWORD(lParam);
+        g_pGenImage = g_pFluid2D->handleMouse();//g_pTest->handleMouse();
+        //if(g_pTest->getMessage()!=nullptr)
+        //    MessageBox(hWnd, g_pTest->getMessage(), L"Active", MB_OK);
 		InvalidateRect(hWnd, nullptr, TRUE);/*invalidates the entire client area and causes a WM_PAINT message to be sent to the window procedure
                                               NULL means entire client area, true to erase background*/
         //MessageBox(hWnd, L"Left mouse button clicked", L"Mouse Click", MB_OK);
         break;
+    }
+    case WM_LBUTTONUP: {
+		int x_release = LOWORD(lParam);
+        int y_release = HIWORD(lParam);
+        //MessageBox(hWnd, L"Left mouse button released", L"Mouse Click", MB_OK);
+		break;
     }
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);

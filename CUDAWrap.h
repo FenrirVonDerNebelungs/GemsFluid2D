@@ -1,29 +1,27 @@
 #pragma once
 #ifndef CUDAWRAP_H
 #define CUDAWRAP_H
-#ifndef BASE_H
-#include "Base.h"
+#ifndef FLUIDANIMATE_H
+#include "FluidAnimate.h"
 #endif
-
 class Test;
 
 class CUDAWrap {
 public:
     CUDAWrap(
-        int blocks_side_dim = 16,//8,   //must be a multiple of 2
+        int blocks_side_dim = 16,   //must be a multiple of 2
         int threads_side_dim = 16, //should be a multiple of 32 but memory overloading, must be a multiple of 2
         double in_delta_t = 1e-3,
         double in_delta_x = 1e-3,
-        double in_nu = 1.0e-6, /*max viscosity slow down for walls, about 1/10th of step velocity distance */
+        double in_nu = 1.0e-5, /*max viscosity slow down for walls, about 1/100th of step velocity distance */
         int jacobi_minBlocks_side_dim=2, /*must be such that 2^some power * minBlocks_side dim = blocks_side_dim */
 		int jacobi_minThreads_side_dim = 4, /*must be such that 2^some power * minThreads_side dim = threads_side_dim */
-        int in_max_jacobi_loops = 200,//50,
-        int in_max_jacobi_force_loops = 200,//100,
-        double dye_Drho = 0.1
+        int in_max_jacobi_loops = 50,
+        int in_max_jacobi_force_loops = 100
     );
     ~CUDAWrap();
 
-    int runCUDA(double* Ux, double* Uy, double* pressure, double* dye, s_force& force, int sim_frames, double jacobi_filter[]);
+    int runCUDA(double* Ux, double* Uy, double* pressure, double* dye, int sim_frames, double jacobi_filter[], FluidAnimate* m_pfluid_animate);
 
 	s_WH getGridWidthHeight() { s_WH wh; wh.width = grid_width; wh.height = grid_height; return wh; }
 
@@ -48,7 +46,6 @@ protected:
     double delta_t;
     double delta_x;
     double nu;
-    double m_dye_Drho;
 
     int* advection_indexes[4]; /*raw, or full indexes of corners around back displaced point*/
     double* advection_dist[4]; /*distances scaled to one between displaced point and nearest corners*/
@@ -74,18 +71,19 @@ protected:
 	double  jacobi_rbeta;
     double* jacobi_delta_x;
 
-    int runNV(double* Ux, double* Uy, double* pressure, double* dye, s_force& force, int sim_frames, double jacobi_filter[]);
 
 	void runFrame(
         int& frame_index, 
         int& p_frame_index, 
         int& p_advection_frame_index, 
 		int& dye_frame_index,
-        s_force& force);
+        s_force& force,
+        s_force& dye_brush
+    );
 
     void advection(int frame_index, int dye_frame_index);
     void viscous_diffusion(int frame_index);
-    void apply_force(int frame_index, int dye_frame_index, s_force& force);
+    void apply_force(int frame_index, int dye_frame_index, s_force& force, s_force& dye_brush);
     void compute_pressure(double* p[], int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* p[], int frame_index, int p_frame_index);
 

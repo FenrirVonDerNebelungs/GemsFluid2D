@@ -10,6 +10,9 @@
 #ifndef DRAWTEST_H
 #include "drawTest.h"
 #endif
+#ifndef FILTER_H
+#include "../Filter.h"
+#endif
 #ifndef CUDAWRAP_H
 #include "../CUDAWrap.h"
 #endif
@@ -19,11 +22,11 @@
 
 class Test {
 public:
-	Test(int num_display_frames=10, int blow_factor=24, int loop_modulus_divider=10);
+	Test(int num_display_frames=10, int blow_factor=2, int loop_modulus_divider=50);
 	~Test();
 
 	int runTest(int sim_frames=10);/*runs the test, returns 0 if successful, otherwise error code*/
-	int runCUDA(double* Ux, double* Uy, double* pressure, s_force& force, int sim_frames);
+	int runCUDA(double* Ux, double* Uy, double* pressure, double* pressure0, int sim_frames, double jacobi_filter[]);
 
 	double* getUx() { return m_Ux; }
 	double* getUy() { return m_Uy; }
@@ -48,10 +51,13 @@ private:
 	double* m_Ux;
 	double* m_Uy;
 	double* m_p;
+	double* m_dye;
 	double* m_Ux_bilinear;
 	double* m_Uy_bilinear;
+	double* m_dye_bilinear;
 	PyTrans* m_pPyTrans;
 	FluidAnimate* m_pFluid_animate;
+	Filter m_filter;
 	s_force m_force;
 
 	drawTest* m_pDraw;
@@ -59,10 +65,24 @@ private:
 	double    m_current_max;
 
 	double* m_host_scratch[4];
+	int* m_host_scratch_int;
 	int m_loop_modulus_divider;
 
-	void runFrame(double* Ux[], double* Uy[], double* p[], double* scratch, int& frame_index, int& p_frame_index, s_force& force);
-	void compute_pressure(double* Ux[], double* Uy[], double* p[], double* scratch, int frame_index, int p_frame_index);
+	void runFrame(
+		int& frame_index, 
+		int& p_frame_index,
+		int& p_advection_frame_index,
+		int& dye_frame_index,
+		s_force& force,
+		s_force& dye_brush);
+	void runTestAdvectionFrame(
+		int& frame_index,
+		int& p_frame_index,
+		int& p_advection_frame_index,
+		int& dye_frame_index,
+		s_force& force,
+		s_force& dye_brush);
+	void compute_pressure(double* p[], int frame_index, int p_frame_index);
 	void jacobi_loop(
 		double* X[], /*frame in is X[0], frame out is also X[0], X[1] in is swap, the pointer X[0] may = the oringinal pointer X[1]*/
 		const double* b,
@@ -78,16 +98,15 @@ private:
 		const double* b,
 		const double* Wx,
 		const double* Wy,
-		int frame_index,
-		const double& alpha,
-		const double& rbeta);
+		int frame_index);
 	void send_jacobi_stacks_to_cache(int jacobi_frame);
-	int getCacheLen();
+	int getCacheLen(int& num_headers);
 
 	void find_max(double& max, const double* data);
 	void find_max();
 	void send_frame_to_host(double* pFrame, const double* dev_data);
 	void send_frame_to_host(double* pFrame, const double* dev_data, int dat_len);
+	void send_frame_to_host(int* pFrame, const int* dev_data);
 
 	double* getFrameToDisplay();
 	void drawDisplayFrames();
