@@ -225,6 +225,8 @@ PyTrans::~PyTrans() {
 	;
 }
 bool PyTrans::init(const char* filename, int total_stream_len_in_doubles, int num_headers, int max_img_size_in_pix, int num_images) {
+	if (m_file_opened)
+		return false;
 	m_total_file_len = 0;
 	bool retval = true;
 	if (filename != nullptr)

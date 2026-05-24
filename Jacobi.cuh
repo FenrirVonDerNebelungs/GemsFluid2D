@@ -92,6 +92,29 @@ __device__ void Xgrid_reduction(
         red_grid_value = Xgrid_reduction_filter_edge(grid, grid_width, grid_height, i_lo_corner, j_lo_corner, filter);
     r_grid[r_index] = red_grid_value;
 }
+__global__ void Xgrid_reduction_dup(
+    double* r_grid1,
+    double* r_grid2,
+    const int r_grid_width,
+    const int r_grid_height,
+    const double* grid1,
+    const int grid_width,
+    const int grid_height,
+    const double* filter
+)
+{
+    const int filter_corner_steps_back = g_expansion_filter_half_wh - 1;
+    int r_i = blockIdx.x * blockDim.x + threadIdx.x;
+    int r_j = blockIdx.y * blockDim.y + threadIdx.y;
+    int r_index = getIndex(r_i, r_j, r_grid_width);
+    int i = 2 * r_i;
+    int j = 2 * r_j;
+    int i_lo_corner = i - filter_corner_steps_back;
+    int j_lo_corner = j - filter_corner_steps_back;
+
+    Xgrid_reduction(r_grid1, r_index, grid1, grid_width, grid_height, i_lo_corner, j_lo_corner, filter);
+    r_grid2[r_index] = r_grid1[r_index];
+}
 __global__ void Xgrid_reduction_x4(
     double* r_grid1,
     double* r_grid2,

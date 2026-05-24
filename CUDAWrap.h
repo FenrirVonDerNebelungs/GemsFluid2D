@@ -13,7 +13,7 @@ public:
         int threads_side_dim = 16, //should be a multiple of 32 but memory overloading, must be a multiple of 2
         double in_delta_t = 1e-3,
         double in_delta_x = 1e-3,
-        double in_nu = 1.0e-5, /*max viscosity slow down for walls, about 1/100th of step velocity distance */
+        double in_nu = 1.0e-3, /*max viscosity slow down for walls, about 1/100th of step velocity distance */
         int jacobi_minBlocks_side_dim=2, /*must be such that 2^some power * minBlocks_side dim = blocks_side_dim */
 		int jacobi_minThreads_side_dim = 4, /*must be such that 2^some power * minThreads_side dim = threads_side_dim */
         int in_max_jacobi_loops = 50,
@@ -68,7 +68,12 @@ protected:
     double** Wx_stack;
     double** Wy_stack;
     double* jacobi_alpha;
+    double* jacobi_alpha_u;
+    double jacobi_alpha_base;
+    double jacobi_alpha_base_u;
 	double  jacobi_rbeta;
+    double*  jacobi_rbeta_u;
+    double  jacobi_rbeta_base_u;
     double* jacobi_delta_x;
 
 
@@ -83,6 +88,7 @@ protected:
 
     void advection(int frame_index, int dye_frame_index);
     void viscous_diffusion(int frame_index);
+    void viscous_diffusion_low(int frame_index);
     void apply_force(int frame_index, int dye_frame_index, s_force& force, s_force& dye_brush);
     void compute_pressure(double* p[], int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* p[], int frame_index, int p_frame_index);
@@ -94,6 +100,7 @@ protected:
         const double* b,
         const double* Wx,
 		const double* Wy);
+
     void jacobi_send_frame_down_stack(
         const double* hi_frame, 
         int hi_frame_width_height, 

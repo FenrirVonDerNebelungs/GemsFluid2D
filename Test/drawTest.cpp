@@ -9,5 +9,5 @@ drawTest::~drawTest() {
 }
 
 void drawTest::drawData(double* data, double dat_sup) {
-	m_pGenImage->genScaledImage(data, dat_sup);
+	m_pGenImage->genScaledImage(data, -dat_sup, dat_sup);
 }
