@@ -63,7 +63,7 @@ class drawFrame:
         plt.figure(figsize=(12,12))
         #plt.quiver(x,y,Ux_2D, Uy_2D, Mag, angles='xy', scale_units='xy', scale=1, cmap='viridis')
         #plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=1, cmap='viridis')
-        plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=0.3, cmap='viridis')
+        plt.quiver(x_sparse,y_sparse,Ux_sparse, Uy_sparse, Mag_sparse, angles='xy', scale_units='xy', scale=0.1, cmap='viridis')
         plt.colorbar(label='Magnitude')
 
         plt.title(graph_title)

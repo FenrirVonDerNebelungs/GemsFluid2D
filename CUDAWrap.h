@@ -13,7 +13,7 @@ public:
         int threads_side_dim = 16, //should be a multiple of 32 but memory overloading, must be a multiple of 2
         double in_delta_t = 1e-3,
         double in_delta_x = 1e-3,
-        double in_nu = 1.0e-5, /*max viscosity slow down for walls, about 1/100th of step velocity distance */
+        double in_nu = 1.0e-3, /*max viscosity slow down for walls, about 1/100th of step velocity distance */
         int jacobi_minBlocks_side_dim=2, /*must be such that 2^some power * minBlocks_side dim = blocks_side_dim */
 		int jacobi_minThreads_side_dim = 4, /*must be such that 2^some power * minThreads_side dim = threads_side_dim */
         int in_max_jacobi_loops = 50,
@@ -21,7 +21,7 @@ public:
     );
     ~CUDAWrap();
 
-    int runCUDA(double* Ux, double* Uy, double* pressure, double* dye, int sim_frames, double jacobi_filter[], FluidAnimate* m_pfluid_animate);
+    int runCUDA(double* Ux, double* Uy, double* pressure, double* dye, int sim_frames, double jacobi_filter[], FluidAnimate* pfluid_animate);
 
 	s_WH getGridWidthHeight() { s_WH wh; wh.width = grid_width; wh.height = grid_height; return wh; }
 
@@ -68,9 +68,21 @@ protected:
     double** Wx_stack;
     double** Wy_stack;
     double* jacobi_alpha;
+    double* jacobi_alpha_u;
+    double jacobi_alpha_base;
+    double jacobi_alpha_base_u;
 	double  jacobi_rbeta;
+    double*  jacobi_rbeta_u;
+    double  jacobi_rbeta_base_u;
     double* jacobi_delta_x;
-
+    double* jacobi_edge_scratch[2];
+    /*setup to shift pressure offset*/
+    int* jacobi_edge_array_len;
+    int* jacobi_edge_numBlocks;
+    int* jacobi_edge_numThreads;
+    int* jacobi_edge_reduction_factor;
+    int     jacobi_edge_reduction_loops;
+    //double* jacobi_edge_host_scratch;
 
 	void runFrame(
         int& frame_index, 
@@ -78,11 +90,14 @@ protected:
         int& p_advection_frame_index, 
 		int& dye_frame_index,
         s_force& force,
+        s_force& sliding_wall_U,
         s_force& dye_brush
     );
 
     void advection(int frame_index, int dye_frame_index);
     void viscous_diffusion(int frame_index);
+    void viscous_diffusion_low(int frame_index);
+    void sliding_wall(int frame_index, s_force& Ux);/*fills m_dev_Ux[frame_index] no input just output*/
     void apply_force(int frame_index, int dye_frame_index, s_force& force, s_force& dye_brush);
     void compute_pressure(double* p[], int frame_index, int p_frame_index);
     void subtract_pressure_gradient(double* p[], int frame_index, int p_frame_index);
@@ -117,6 +132,7 @@ protected:
 		int numThreads_s,
         const double* Wx=nullptr, 
         const double* Wy=nullptr);
+    void jacobi_reset_net_pressure(double* X);
     void jacobi_run(
 		double* X[],
         const double* b,
@@ -125,20 +141,12 @@ protected:
         int frame_index);
 
     /*test functions*/
-    void advection_backtrace(
+    void advection_backtrace_test(
         double* relPos_i,
         double* relPos_j,
         /*const*/ double* Ux[],
         /*const*/ double* Uy[],
         int frame_index);/* test function */
-    void bilinearAprox_scaledFrame(
-        double* Ux_scaled, 
-        double* Uy_scaled, 
-        double* dye_scaled,
-        const double* Ux, 
-        const double* Uy, 
-        const double* dye,
-        int scale_factor = 6);
 
     /*general vector math*/
 	void gradient(double* dp_dx, double* dp_dy, double* p[], int p_frame_index);
@@ -167,6 +175,7 @@ protected:
     int find2Pow(int pow);
 	int find_stack_WH_and_redFactor(s_WH& wh, int stack_level, int stack_height);
 	void find_stack_BlocksNThreads(int& numBlocks_s, int& numThreads_s, int reduction_factor);
+    void find_jacobi_edge_BlocksNThreads(int& numBlocks_s, int& numThreads_s, int edge_total_len);
 };
 
 #endif

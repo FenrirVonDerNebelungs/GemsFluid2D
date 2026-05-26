@@ -13,7 +13,10 @@ public:
 		int decay_frames=3,
 		double decay_factor=0.1,
 		double max_allowed_force = 300.0,
-		int max_dye_frames_duration=3);
+		int max_dye_frames_duration=3,
+		double dye_intensity=0.1,
+		double sliding_frame_U=2.0
+		);
 	~FluidAnimate();
 
 	void init(s_WH& grid_wh);
@@ -21,9 +24,15 @@ public:
 	s_force getForce(int frame_cnt, int start_frame=0, double Ang_cos=-0.2, bool sin_positive=false, double Fmag=300.0, int center_i=4, int center_j=10, double R=16.0);//Fmag was originally 1
 	s_force updateForce(int frame_cnt);
 	double getMaxAllowedForce() { return m_max_allowed_force; }
+	void setForceActive(bool isActive) { m_vars.active = isActive; }
 	double getDyeIntensity() { return m_dye_intensity; }	
 	bool setDye(int frame_cnt, int start_frame=0, double dye_intensity=0.1, int center_i=4, int center_j=10, double R=3.0);
 	s_force updateDye(int frame_cnt);
+	void setDyeActive(bool isActive) { m_dye.active = isActive; }
+
+	void setSlidingWallActive(bool isActive = true) { m_sliding_wall.active= isActive; }
+	bool slidingWallActive() { return m_sliding_wall.active; }
+	s_force getSlidingWallU() { return m_sliding_wall; }
 private:
 	int m_grid_width;
 	int m_grid_height;
@@ -44,6 +53,8 @@ private:
 	int m_dye_frame_start;
 	double m_dye_intensity;
 	s_force m_dye;
+
+	s_force   m_sliding_wall;
 
 	bool computeForceVars(int frame_cnt, int center_offset_i, int center_offset_j);
 	bool computeDyeVars(int frame_cnt, int center_offset_i, int center_offset_j);

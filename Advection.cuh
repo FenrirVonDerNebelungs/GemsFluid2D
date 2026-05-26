@@ -1,4 +1,76 @@
 #include "Jacobi.cuh"
+__device__ bool inRange_corners(const int4* corners, int grid_width, int grid_height) {
+    if (corners->x == corners->z || corners->y == corners->w)
+        return false;
+    return corners->x >= 0 && corners->z < grid_width && corners->y >= 0 && corners->w < grid_height;
+}
+__device__ void add(const int4* corners1, const int4* corners2, int4* result) {
+    result->x = corners1->x + corners2->x;
+    result->z = corners1->z + corners2->z;
+    result->y = corners1->y + corners2->y;
+    result->w = corners1->w + corners2->w;
+}
+__device__ void addCornersTo_ij(int i, int j, const int4* relCorners, int4* result) {
+    int4 indexes_to_add = make_int4(i, j, i, j); /* x, y, z, w*/
+    add(&indexes_to_add, relCorners, result);
+}
+__device__ void getRelFourCorners(
+    const double2& relPos,
+    int4* result
+) {
+    result->x = (int)std::floor(relPos.x);
+    result->z = (int)std::ceil(relPos.x);
+    result->y = (int)std::floor(relPos.y);
+    result->w = (int)std::ceil(relPos.y);
+}
+__device__ double bilinearAprox_Quad(
+    const double dist_to_x1,
+    const double dist_to_x2,
+    const double dist_to_y1,
+    const double dist_to_y2,
+    const double Q_11,
+    const double Q_21,
+    const double Q_12,
+    const double Q_22)
+{
+    double est_val = dist_to_x2 * dist_to_y2 * Q_11 + dist_to_x1 * dist_to_y2 * Q_21 + dist_to_x2 * dist_to_y1 * Q_12 + dist_to_x1 * dist_to_y1 * Q_22;
+    return est_val;
+}
+
+__device__ double bilinearAprox_Core(
+    int Q_index,
+    const double* Q,
+    const int* index_11,
+    const int* index_12,
+    const int* index_21,
+    const int* index_22,
+    const double* dist_to_x1,
+    const double* dist_to_x2,
+    const double* dist_to_y1,
+    const double* dist_to_y2
+) {
+    /* frac{1}{(x_2 - x_1)(y_2-y_1)} ((x_2-x)(y_2-y)Q_{11} + (x-x_1)(y_2-y)Q_{21} + (x_2-x)(y-y_1)Q_{12} + (x-x_1)(y-y_1)Q_{22} */
+    /* (y_2-y_1)=(x_2-x_1)=delta_x*/
+    double Q_11 = 0.0, Q_21 = 0.0, Q_12 = 0.0, Q_22 = 0.0;
+    if (index_11[Q_index] >= 0)
+        Q_11 = Q[index_11[Q_index]];
+    if (index_21[Q_index] >= 0)
+        Q_21 = Q[index_21[Q_index]];
+    if (index_12[Q_index] >= 0)
+        Q_12 = Q[index_12[Q_index]];
+    if (index_22[Q_index] >= 0)
+        Q_22 = Q[index_22[Q_index]];
+    double estimated_Q = bilinearAprox_Quad(
+        dist_to_x1[Q_index],
+        dist_to_x2[Q_index],
+        dist_to_y1[Q_index],
+        dist_to_y2[Q_index],
+        Q_11,
+        Q_21,
+        Q_12,
+        Q_22);
+    return estimated_Q;
+}
 __device__ double2 getRelBackTracedPosition(
     double2 U /*result is in i,j coordinates where delta_x between cells is 1 */,
     const double delta_t,
@@ -35,29 +107,8 @@ __global__ void advection_Core(
     Uy_out[i] = est_Uy;
     dye_out[i] = est_dye;
 }
-__global__ void advection_Core_big(
-    double* Ux_out, 
-    double* Uy_out, 
-    const double* Ux_in, 
-    const double* Uy_in, 
-    double delta_t, 
-    double delta_x, 
-    int grid_width, 
-    int grid_height) 
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int center_index = getIndex(i, j, grid_width);
-    double2 U_in = make_double2(Ux_in[center_index], Uy_in[center_index]);
-    double2 relPos = getRelBackTracedPosition(U_in, delta_t, delta_x);
-    double2 U_out=make_double2(0.0, 0.0);
-    /* find the interpolated values for U_x, U_y*/
-    bilinearAprox_Core_big(&U_out, Ux_in, Uy_in, relPos, i, j, grid_width, grid_height);
-    Ux_out[center_index] = U_out.x;
-    Uy_out[center_index] = U_out.y;
-}
 
-__global__ void advection_backtrace_to_indexes(
+__global__ void advection_backtrace_Core(
     int* index_11,
     int* index_12,
     int* index_21,
@@ -110,7 +161,7 @@ __global__ void advection_backtrace_to_indexes(
         }
     }
 }
-__global__ void advection_backtrace_Core( /*test function returns backtraced cell center locations based on cell current velocity*/
+__global__ void advection_backtrace_test_Core( /*test function returns backtraced cell center locations based on cell current velocity*/
     double* x_out,
     double* y_out,
     const double* Ux_in,

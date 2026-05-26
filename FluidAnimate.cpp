@@ -1,5 +1,5 @@
 #include "FluidAnimate.h"
-FluidAnimate::FluidAnimate(int max_frame_duration, int decay_frames, double decay_factor, double max_allowed_force, int max_dye_frames_duration) :
+FluidAnimate::FluidAnimate(int max_frame_duration, int decay_frames, double decay_factor, double max_allowed_force, int max_dye_frames_duration, double dye_intensity, double sliding_frame_U) :
 	m_grid_width(0),
 	m_grid_height(0),
 	m_max_frame_duration(max_frame_duration),
@@ -13,7 +13,7 @@ FluidAnimate::FluidAnimate(int max_frame_duration, int decay_frames, double deca
 	m_max_allowed_force(max_allowed_force),
 	m_max_dye_frames_duration(max_dye_frames_duration),
 	m_dye_frame_start(0),
-	m_dye_intensity(0.0)
+	m_dye_intensity(dye_intensity)
 {
 	m_vars.i = 0;
 	m_vars.j = 0;
@@ -29,6 +29,13 @@ FluidAnimate::FluidAnimate(int max_frame_duration, int decay_frames, double deca
 	m_dye.R = 0.0;
 	m_dye.inv_Rsqrd = 0.0;
 	m_dye.active = false;
+	m_sliding_wall.i = 0;
+	m_sliding_wall.j = 0;
+	m_sliding_wall.Fx_c = sliding_frame_U;
+	m_sliding_wall.Fy_c = 0.0;
+	m_sliding_wall.R = 0.0;
+	m_sliding_wall.inv_Rsqrd = 0.0;
+	m_sliding_wall.active = false;
 }
 FluidAnimate::~FluidAnimate() {
 	;

@@ -15,217 +15,7 @@ __device__ int getGoodIndex(const int i, const int j, const int grid_width, cons
         return -1;
     return getIndex(i, j, grid_width);
 }
-__device__ bool inInteriorSlab_ij(const int i, const int j, const int grid_width, const int grid_height) {
-    if (i <= 0 || i >= (grid_width - 1))
-        return false;
-    if (j <= 0 || j >= (grid_height - 1))
-        return false;
-    return true;
-}
-__device__ bool inRange_corners(const int4* corners, int grid_width, int grid_height) {
-    if(corners->x==corners->z || corners->y==corners->w)
-		return false;
-    return corners->x >= 0 && corners->z < grid_width && corners->y >= 0 && corners->w < grid_height;
-}
-__device__ void add(const int4* corners1, const int4* corners2, int4* result) {
-    result->x = corners1->x + corners2->x;
-    result->z = corners1->z + corners2->z;
-    result->y = corners1->y + corners2->y;
-    result->w = corners1->w + corners2->w;
-}
-__device__ void addCornersTo_ij(int i, int j, const int4* relCorners, int4* result) {
-    int4 indexes_to_add = make_int4( i, j, i, j ); /* x, y, z, w*/
-    add(&indexes_to_add, relCorners, result);
-}
-__device__ void getRelFourCorners(
-    const double2& relPos,
-    int4* result
-) {
-    result->x = (int)std::floor(relPos.x);
-    result->z = (int)std::ceil(relPos.x);
-    result->y = (int)std::floor(relPos.y);
-    result->w = (int)std::ceil(relPos.y);
-}
-__device__ double bilinearAprox_Quad(
-    const double dist_to_x1, 
-    const double dist_to_x2, 
-    const double dist_to_y1, 
-    const double dist_to_y2,
-    const double Q_11,
-    const double Q_21,
-    const double Q_12,
-    const double Q_22)
-{
-    double est_val = dist_to_x2 * dist_to_y2 * Q_11 + dist_to_x1 * dist_to_y2 * Q_21 + dist_to_x2 * dist_to_y1 * Q_12 + dist_to_x1 * dist_to_y1 * Q_22;
-    return est_val;
-}
 
-__device__ double bilinearAprox_Core(
-    int Q_index,
-    const double* Q,
-    const int* index_11,
-    const int* index_12,
-    const int* index_21,
-    const int* index_22,
-    const double* dist_to_x1,
-    const double* dist_to_x2,
-    const double* dist_to_y1,
-    const double* dist_to_y2
-) {
-    /* frac{1}{(x_2 - x_1)(y_2-y_1)} ((x_2-x)(y_2-y)Q_{11} + (x-x_1)(y_2-y)Q_{21} + (x_2-x)(y-y_1)Q_{12} + (x-x_1)(y-y_1)Q_{22} */
-    /* (y_2-y_1)=(x_2-x_1)=delta_x*/
-    double Q_11 = 0.0, Q_21 = 0.0, Q_12 = 0.0, Q_22 = 0.0;
-    if (index_11[Q_index] >= 0)
-        Q_11 = Q[index_11[Q_index]];
-    if (index_21[Q_index] >= 0)
-        Q_21 = Q[index_21[Q_index]];
-    if (index_12[Q_index] >= 0)
-        Q_12 = Q[index_12[Q_index]];
-    if (index_22[Q_index] >= 0)
-        Q_22 = Q[index_22[Q_index]];
-    double estimated_Q = bilinearAprox_Quad(
-        dist_to_x1[Q_index],
-        dist_to_x2[Q_index],
-        dist_to_y1[Q_index],
-        dist_to_y2[Q_index],
-        Q_11,
-        Q_21,
-        Q_12,
-        Q_22);
-    return estimated_Q;
-}
-__device__ bool bilinearAprox_Core_big(
-    double2* pU_out,
-    const double* Ux_in,
-    const double* Uy_in,
-    const double2 relPos,
-    const int i_pos,
-	const int j_pos,
-    const int grid_width, 
-	const int grid_height
-) {
-	int4 relCorners = make_int4(0, 0, 0, 0);
-	getRelFourCorners(relPos,&relCorners);
-	int4 corners = make_int4(0, 0, 0, 0);
-    addCornersTo_ij(i_pos, j_pos, &relCorners, &corners);
-
-    /*x is i1, z is i2, y is j1, w is j2*/
-    double dist_to_x1 = relPos.x - (double)relCorners.x;
-    double dist_to_x2 = (double)relCorners.z - relPos.x;
-    double dist_to_y1 = relPos.y - (double)relCorners.y;
-    double dist_to_y2 = (double)relCorners.w - relPos.y;
-
-    double Ux_11 = 0.0, Ux_21 = 0.0, Ux_12 = 0.0, Ux_22 = 0.0;
-    double Uy_11 = 0.0, Uy_21 = 0.0, Uy_12 = 0.0, Uy_22 = 0.0;
-    if (inRange_corners(&corners, grid_width, grid_height)) {
-        /* frac{1}{(x_2 - x_1)(y_2-y_1)} ((x_2-x)(y_2-y)Q_{11} + (x-x_1)(y_2-y)Q_{21} + (x_2-x)(y-y_1)Q_{12} + (x-x_1)(y-y_1)Q_{22} */
-        /* (y_2-y_1)=(x_2-x_1)=delta_x*/
-
-		int index_11 = getIndex(corners.x, corners.y, grid_width); /* i1, j1*/ 
-        int index_12 = getIndex(corners.x, corners.w, grid_width); /* i1, j2*/
-		int index_21 = getIndex(corners.z, corners.y, grid_width); /* i2, j1*/ 
-		int index_22 = getIndex(corners.z, corners.w, grid_width); /* i2, j2*/
-
-        Ux_11 = Ux_in[index_11];
-        Ux_21 = Ux_in[index_21];
-        Ux_12 = Ux_in[index_12];
-        Ux_22 = Ux_in[index_22];
-
-        Uy_11 = Uy_in[index_11];
-        Uy_21 = Uy_in[index_21];
-        Uy_12 = Uy_in[index_12];
-        Uy_22 = Uy_in[index_22];
-
-    }
-    else {
-        int index_11 = getGoodIndex(corners.x, corners.y, grid_width, grid_height);
-        int index_12 = getGoodIndex(corners.x, corners.w, grid_width, grid_height);
-        int index_21 = getGoodIndex(corners.z, corners.y, grid_width, grid_height);
-        int index_22 = getGoodIndex(corners.z, corners.w, grid_width, grid_height);
-        if (index_11 >= 0) {
-            Ux_11 = Ux_in[index_11];
-            Uy_11 = Uy_in[index_11];
-        }
-        if (index_12 >= 0) {
-            Ux_12 = Ux_in[index_12];
-            Uy_12 = Uy_in[index_12];
-        }
-        if (index_21 >= 0) {
-            Ux_21 = Ux_in[index_21];
-            Uy_21 = Uy_in[index_21];
-        }
-        if (index_22 >= 0) {
-            Ux_22 = Ux_in[index_22];
-            Uy_22 = Uy_in[index_22];
-        }
-        if (corners.x == corners.z) {
-            dist_to_x1 = 0.5;
-            dist_to_x2 = 0.5;
-        }
-        if(corners.y == corners.w) {
-            dist_to_y1 = 0.5;
-            dist_to_y2 = 0.5;
-		}
-    }
-    /*find values in middle of grid where backtrace remains on grid*/
-    double estimated_Ux = bilinearAprox_Quad(
-        dist_to_x1,
-        dist_to_x2,
-        dist_to_y1,
-        dist_to_y2,
-        Ux_11,
-        Ux_21,
-        Ux_12,
-        Ux_22);
-    double estimated_Uy = bilinearAprox_Quad(
-        dist_to_x1,
-        dist_to_x2,
-        dist_to_y1,
-        dist_to_y2,
-        Uy_11,
-        Uy_21,
-        Uy_12,
-        Uy_22);
-
-    pU_out->x = estimated_Ux;
-    pU_out->y = estimated_Uy;
-    return true;
-}
-__global__ void bilinearAprox_scaledFrame_Core( /*i and j block indexes run over smaller frame, pre-scaled*/
-    double* Ux_out/*blown up*/,
-    double* Uy_out/*blown up*/,
-    const double* Ux_in,
-    const double* Uy_in,
-    int grid_width,
-    int grid_height,
-    int scale_factor) 
-{
-    if(scale_factor <= 1)
-		return;
-	double2 U_out = make_double2(0.0, 0.0);
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-	int half_square = scale_factor / 2;
-	int out_grid_width = grid_width * scale_factor;
-	int out_grid_height = grid_height * scale_factor;
-    double2 relPos = make_double2(0.0, 0.0);
-    for(int square_j=0; square_j < scale_factor; square_j++) {
-		relPos.y = (double)(square_j-half_square) / (double)scale_factor;
-        int j_out = j * scale_factor - half_square + square_j;
-        if(j_out < 0 || j_out >= out_grid_height)
-			continue;
-        for(int square_i=0; square_i < scale_factor; square_i++) {
-			relPos.x = (double)(square_i - half_square) / (double)scale_factor;
-            int i_out = i * scale_factor - half_square + square_i;
-            if (i_out < 0 || i_out >= out_grid_width)
-                continue;
-            int out_index = getIndex(i_out, j_out, out_grid_width);
-			bilinearAprox_Core_big(&U_out, Ux_in, Uy_in, relPos, i, j, grid_width, grid_height);
-			Ux_out[out_index] = U_out.x;
-			Uy_out[out_index] = U_out.y;
-        }
-	}
-}
 __global__ void copy_memory(double* copy, const double* orig) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     copy[i] = orig[i];
@@ -234,88 +24,73 @@ __global__ void add_values(double* in_out, const double* in) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 	in_out[i] += in[i];
 }
-__global__ void applyForce_Core(
-    double* Ux_out,
-    double* Uy_out,
-    double* dye_out,
-    const double* Ux_in,
-    const double* Uy_in,
-    const double* dye_in,
-    const double2 center/*in i,j*/,
-    const double2 F_c,
-    const double2 dye_center,
-    double dye_delta_mag,
-    double delta_t,
-    double inv_rsqrd,
-	double inv_dye_rsqrd,
-    const int grid_width) 
+
+/*used for test*/
+__global__ void derivative_Core(
+    double* dx_out,
+    double* dy_out,
+    const double* Wx_in,
+    const double* Wy_in,
+    double inv_2delta_x,
+    const int grid_width,
+    const int grid_height) /*this is used to compute div of velocity field, so assume dirichlet b.c. w_{-1,j} = 0 */
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
+    double WL = 0.0, WR = 0.0;
+    double WT = 0.0, WB = 0.0;
+    int i_max = grid_width - 1;
+    int j_max = grid_height - 1;
+    if (i > 0) {
+        int index_iminus = getIndex(i - 1, j, grid_width);
+        WL = Wx_in[index_iminus];
+    }
+    if (i < i_max) {
+        int index_iplus = getIndex(i + 1, j, grid_width);
+        WR = Wx_in[index_iplus];
+    }
+    if (j > 0) {
+        int index_jminus = getIndex(i, j - 1, grid_width);
+        WB = Wy_in[index_jminus];
+    }
+    if (j < j_max) {
+        int index_jplus = getIndex(i, j + 1, grid_width);
+        WT = Wy_in[index_jplus];
+    }
     int center_index = getIndex(i, j, grid_width);
-    /* frac{(x-x_p)^2 + (y-y_p)^2}{r}*/
-    double x_dist = (double)i - center.x;
-    double y_dist = (double)j - center.y;
-    double arg = -(x_dist * x_dist + y_dist * y_dist) * inv_rsqrd;
-	double exp_arg = exp(arg);
-
-	double dye_x_dist = (double)i - dye_center.x;
-	double dye_y_dist = (double)j - dye_center.y;
-	double dye_arg = -(dye_x_dist * dye_x_dist + dye_y_dist * dye_y_dist) * inv_dye_rsqrd;
-    double dye_exp_arg = exp(dye_arg);
-
-    double force_x = F_c.x * exp_arg;
-    double force_y = F_c.y * exp_arg;
-    double delta_ux = delta_t * force_x;
-    double delta_uy = delta_t * force_y;
-    Ux_out[center_index] = Ux_in[center_index] + delta_ux;
-    Uy_out[center_index] = Uy_in[center_index] + delta_uy;
-
-	double delta_dye = dye_delta_mag * dye_exp_arg;
-	dye_out[center_index] = dye_in[center_index] + delta_dye;
+    double dW_dx = inv_2delta_x * (WR - WL);
+    double dW_dy = inv_2delta_x * (WT - WB);
+    dx_out[center_index] = dW_dx;
+    dy_out[center_index] = dW_dy;
 }
-
-__device__ void viscous_diffusion_for_component(
-    double* frame_out,
-    int i,
-    int j,
-    const double* frame_in,
-    double nu/*viscosity constant*/,
-    double inv_delta_Xsqrd,
-    double delta_t,
-    double grid_width,
-    double grid_height)
-{
-    double xL = 0.0, xR = 0.0;
-    double xT = 0.0, xB = 0.0;
-
-    if (i > 0)
-        xL = frame_in[getIndex(i - 1, j, grid_width)];
-    if (i < (grid_width - 1))
-        xR = frame_in[getIndex(i + 1, j, grid_width)];
-    if (j > 0)
-        xB = frame_in[getIndex(i, j - 1, grid_width)];
-    if (j < (grid_height - 1))
-        xT = frame_in[getIndex(i, j + 1, grid_width)];
-
-    double center_val = frame_in[getIndex(i, j, grid_width)];
-    double laplacian = (xL + xR + xT + xB - 4.0 * center_val) * inv_delta_Xsqrd;
-    double new_velocity_component = center_val + nu * laplacian * delta_t;
-    frame_out[getIndex(i, j, grid_width)] = new_velocity_component;
-}
-__global__ void viscous_diffusion_core(
-    double* Ux_out,
-    double* Uy_out,
-    const double* Ux_in,
-    const double* Uy_in,
-    double nu/*viscosity constant*/,
-    double inv_delta_Xsqrd,
-    double delta_t,
-    double grid_width,
-    double grid_height)
+/*used for test*/
+__global__ void gradient_core(
+    double* Vx,
+    double* Vy,
+    const double* p,
+    double inv_2delta_x,
+    const int grid_width,
+    const int grid_height)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
-    viscous_diffusion_for_component(Ux_out, i, j, Ux_in, nu, inv_delta_Xsqrd, delta_t, grid_width, grid_height);
-    viscous_diffusion_for_component(Uy_out, i, j, Uy_in, nu, inv_delta_Xsqrd, delta_t, grid_width, grid_height);
+    int field_index = getIndex(i, j, grid_width);
+    double px = 0.0;
+    double py = 0.0;
+    if (i < (grid_width - 1) && i>0) {
+        int index_iplus = getIndex(i + 1, j, grid_width);
+        int index_iminus = getIndex(i - 1, j, grid_width);
+        px = (p[index_iplus] - p[index_iminus]) * inv_2delta_x;
+    }
+    else
+        px = 0.0;
+    if (j < (grid_height - 1) && j>0) {
+        int index_jplus = getIndex(i, j + 1, grid_width);
+        int index_jminus = getIndex(i, j - 1, grid_width);
+        py = (p[index_jplus] - p[index_jminus]) * inv_2delta_x;
+    }
+    else
+        py = 0.0;
+    Vx[field_index] = px;
+    Vy[field_index] = py;
 }

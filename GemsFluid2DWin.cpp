@@ -13,6 +13,7 @@
 HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
+HWND g_fluid_hWnd;
 GenImage* g_pGenImage = nullptr; //class used to draw images
 Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
 Test* g_pTest = nullptr; //class used to run the fluid simulation
@@ -51,11 +52,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // Main message loop:
     while (GetMessage(&msg, nullptr, 0, 0))
-    {
+    {    
         if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
         {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+        }
+        if (g_pFluid2D->runSim()) {
+            InvalidateRect(g_fluid_hWnd, nullptr, TRUE);
+            g_pGenImage = g_pFluid2D->getCurrentImage();
         }
     }
 
@@ -105,31 +110,31 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	g_pFluid2D = new Fluid2D();
 	s_WH grid_wh = g_pFluid2D->getGridWidthHeight();
-	g_pFluid2D->applyForce();
-	g_pFluid2D->initFileOutput();
-	g_pFluid2D->launchCUDA();
-	g_pFluid2D->releaseFileOutput();
+	//g_pFluid2D->applyForce();
+	//g_pFluid2D->initFileOutput();
+	//g_pFluid2D->launchCUDA();
+	//g_pFluid2D->releaseFileOutput();
 
 
 	//g_pTest = new Test();
 	//grid_wh = g_pTest->getGridWidthHeight();
     //g_pTest->runTest();
     //g_pGenImage = g_pTest->getTestImage();//new GenImage(grid_wh.width, grid_wh.height);
-    g_pGenImage = g_pFluid2D->getImagePtr_dye();
+    //g_pGenImage = g_pFluid2D->getCurrentImage();
    hInst = hInstance; // Store instance handle in our global variable
    //s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
-   int window_width = grid_wh.width;//blown_grid_wh.width + 6;
-   int window_height = grid_wh.height;//blown_grid_wh.height + 6;
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+   int window_width = grid_wh.width + 100;//blown_grid_wh.width + 6;
+   int window_height = grid_wh.height + 100;//blown_grid_wh.height + 6;
+   g_fluid_hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT, 0, window_width, window_height, nullptr, nullptr, hInstance, nullptr);//CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
-   if (!hWnd)
+   if (!g_fluid_hWnd)
    {
       return FALSE;
    }
 
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
+   ShowWindow(g_fluid_hWnd, nCmdShow);
+   UpdateWindow(g_fluid_hWnd);
 
 
    return TRUE;
@@ -141,7 +146,7 @@ VOID Release()
         delete g_pTest;
         g_pTest = nullptr;
     }*/
-    
+    g_pFluid2D->releaseFileOutput();
     if(g_pFluid2D != nullptr)
     {
         delete g_pFluid2D;
@@ -156,12 +161,14 @@ VOID Release()
 //  WM_COMMAND  - process the application menu
 //  WM_PAINT    - Paint the main window
 //  WM_DESTROY  - post a quit message and return
-//
+//  WM_LBUTTONDOWN: - mouse button down, stores the location of the mouse click
+//  WM_LBUTTONUP: - mouse button up, applies the force based on the mouse movement, or restarts simulation if mouse drag was too small
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    int last_mouse_button_down_x = -1;
-	int last_mouse_button_down_y = -1;
+    static int last_mouse_button_down_x = -1;
+	static int last_mouse_button_down_y = -1;
+
     switch (message)
     {
     case WM_COMMAND:
@@ -183,10 +190,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     case WM_PAINT:
         {
+        if (g_pGenImage != nullptr) {
             PAINTSTRUCT ps;
-			BITMAPINFO* bmi = g_pGenImage->getBitmapInfo();
-			s_WH wh = g_pGenImage->getWidthHeight();
-			unsigned char* pImageData = g_pGenImage->getImageData();
+            BITMAPINFO* bmi = g_pGenImage->getBitmapInfo();
+            s_WH wh = g_pGenImage->getWidthHeight();
+            unsigned char* pImageData = g_pGenImage->getImageData();
 
             HDC hdc = BeginPaint(hWnd, &ps);
             // TODO: Add any drawing code that uses hdc here...
@@ -202,6 +210,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     DIB_RGB_COLORS);
             }
             EndPaint(hWnd, &ps);
+        }
 
         }
         break;
@@ -211,19 +220,77 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONDOWN: {
         last_mouse_button_down_x = LOWORD(lParam);
         last_mouse_button_down_y = HIWORD(lParam);
-        g_pGenImage = g_pFluid2D->handleMouse();//g_pTest->handleMouse();
+        //g_pGenImage = g_pFluid2D->handleMouse();//g_pTest->handleMouse();
         //if(g_pTest->getMessage()!=nullptr)
         //    MessageBox(hWnd, g_pTest->getMessage(), L"Active", MB_OK);
-		InvalidateRect(hWnd, nullptr, TRUE);/*invalidates the entire client area and causes a WM_PAINT message to be sent to the window procedure
-                                              NULL means entire client area, true to erase background*/
+		//InvalidateRect(hWnd, nullptr, TRUE);/*invalidates the entire client area and causes a WM_PAINT message to be sent to the window procedure
+                                              //NULL means entire client area, true to erase background*/
         //MessageBox(hWnd, L"Left mouse button clicked", L"Mouse Click", MB_OK);
         break;
     }
     case WM_LBUTTONUP: {
 		int x_release = LOWORD(lParam);
         int y_release = HIWORD(lParam);
+        g_pFluid2D->handleMouseSweep(x_release, y_release, last_mouse_button_down_x, last_mouse_button_down_y);
+		last_mouse_button_down_x = -1;
+		last_mouse_button_down_y = -1;
         //MessageBox(hWnd, L"Left mouse button released", L"Mouse Click", MB_OK);
 		break;
+    }
+    case WM_KEYDOWN: {
+        switch (wParam)
+        {
+            case VK_SPACE:
+                g_pFluid2D->advanceSim();
+                break;
+            case VK_ESCAPE:
+                g_pFluid2D->resetSim();
+                break;
+            case VK_OEM_PLUS:
+                g_pFluid2D->toggleAddDyeWithForce();
+                break;
+        }
+        break;
+    }
+
+    case WM_CHAR: {
+        switch (wParam)
+        {
+        case 'p':
+            {
+                g_pFluid2D->setDisplayP();
+                g_pGenImage = g_pFluid2D->getCurrentImage();
+                InvalidateRect(hWnd, nullptr, TRUE);
+                break;
+            }
+            case 'd': 
+            {
+                g_pFluid2D->setDisplayDye();
+                g_pGenImage = g_pFluid2D->getCurrentImage();
+                InvalidateRect(hWnd, nullptr, TRUE);
+                break;
+            }
+            case 's':
+            {
+                 g_pFluid2D->toggleSlidingWallActive();
+                if (g_pFluid2D->slidingWallActive())
+                    MessageBox(hWnd, L"activating sliding wall", L"State", MB_OK);
+                else
+                    MessageBox(hWnd, L"turning off sliding wall", L"State", MB_OK);
+                break;
+            }
+            case 'w':
+            {
+                if (g_pFluid2D->initFileOutput())
+                    MessageBox(hWnd, L"Dumping output to disk", L"File Out", MB_OK);
+                else
+                    MessageBox(hWnd, L"init dump failed, file output may already be active", L"File Out", MB_OK);
+                break;
+            }
+            default:
+                break;
+        }
+            break;
     }
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);

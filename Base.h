@@ -23,13 +23,6 @@ struct s_jacobi_vars {
     double beta;
     double rbeta;
 };
-/*
-struct s_four_corners {
-    int i1;
-    int i2;
-    int j1;
-    int j2;
-};*/
 struct s_force {
     int i;
     int j;
