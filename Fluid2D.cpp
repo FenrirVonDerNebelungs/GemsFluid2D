@@ -19,7 +19,8 @@ Fluid2D::Fluid2D(
 	int jacobi_minThreads_side_dim,
 	int in_max_jacobi_loops,
 	int in_max_jacobi_force_loops,
-	int filter_sigma
+	int filter_sigma,
+	double dye_intensity
 ) : 
 	m_CUDA_wrap(
 		blocks_side_dim, 
@@ -37,8 +38,10 @@ Fluid2D::Fluid2D(
 	m_sim_cnt(0),
 	m_mouse_max_delta(mouse_max_delta),
 	m_mouse_min_delta(mouse_min_delta),
+	m_dye_intensity(dye_intensity),
 	m_draw_dye(false),
 	m_add_dye_with_force(true),
+	m_add_dye_without_force(false),
 	m_sim_frames(sim_frames),
 	m_num_sims(num_sims),
 	m_mouse_clicks(0)
@@ -49,6 +52,12 @@ Fluid2D::Fluid2D(
 	m_Uy = nullptr;
 	m_p = nullptr;
 	m_dye = nullptr;
+	/*check values*/
+	if (sim_frames < 2)
+		m_sim_frames = 9;
+	if (num_sims < 2)
+		m_num_sims = 12;
+	/**************/
 	s_WH grid_wh = m_CUDA_wrap.getGridWidthHeight();
 	m_grid_width = grid_wh.width;
 	m_grid_height = grid_wh.height;
@@ -58,7 +67,7 @@ Fluid2D::Fluid2D(
 		m_images_dye = new GenImage * [m_num_sims];
 		for (int i = 0; i < m_num_sims; i++) {
 			m_images_p[i] = new GenImage(m_grid_width,m_grid_height);
-			m_images_dye[i] = new GenImage(m_grid_width,m_grid_height,SepiaGlow);
+			m_images_dye[i] = new GenImage(m_grid_width,m_grid_height,Gem);
 		}
 	}
 	m_Ux = new double[m_size];
@@ -129,7 +138,7 @@ bool Fluid2D::handleMouseSweep(int mouse_end_x, int mouse_end_y_raw, int mouse_s
 	int mouse_center_offset_y = mouse_start_y - (m_grid_height / 2);
 	double mouse_dx = static_cast<double>(mouse_end_x - mouse_start_x);
 	double mouse_dy = static_cast<double>(mouse_end_y - mouse_start_y);
-	double dye_intensity = m_add_dye_with_force ? m_fluid_animate.getDyeIntensity() : 0.0;
+	double dye_intensity = m_add_dye_with_force ? m_dye_intensity : 0.0;
 	return applyForce(mouse_dx, mouse_dy, mouse_center_offset_x, mouse_center_offset_y,dye_intensity);
 }
 
@@ -180,12 +189,16 @@ bool Fluid2D::applyForce(double mouse_dx, double mouse_dy, int mouse_center_offs
 	if (mouse_delta < m_mouse_min_delta)
 		return false;
 
-	double mouse_cos = mouse_dx / mouse_delta;
-	bool mouse_sin_positive = (mouse_dy >= 0);
-	double Force_mag = m_fluid_animate.getMaxAllowedForce();
-	if (mouse_delta < m_mouse_max_delta)
-		Force_mag *= mouse_delta / m_mouse_max_delta;
-	m_fluid_animate.getForce(0, 0, mouse_cos, mouse_sin_positive, Force_mag, mouse_center_offset_x, mouse_center_offset_y);
+	if (!m_add_dye_without_force) {
+		double mouse_cos = mouse_dx / mouse_delta;
+		bool mouse_sin_positive = (mouse_dy >= 0);
+		double Force_mag = m_fluid_animate.getMaxAllowedForce();
+		if (mouse_delta < m_mouse_max_delta)
+			Force_mag *= mouse_delta / m_mouse_max_delta;
+		m_fluid_animate.getForce(0, 0, mouse_cos, mouse_sin_positive, Force_mag, mouse_center_offset_x, mouse_center_offset_y);
+	}
+	else
+		m_fluid_animate.getForce(0, 0, 1.0, true, 0.0, mouse_center_offset_x, mouse_center_offset_y);
 	bool dye_ok = m_fluid_animate.setDye(0, 0, dye_intensity, mouse_center_offset_x, mouse_center_offset_y);
 	return true & dye_ok;
 }

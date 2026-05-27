@@ -23,6 +23,18 @@ CUDAWrap::CUDAWrap(
 	m_max_jacobi_force_loops(in_max_jacobi_force_loops),
 	m_num_jacobi_loops(in_max_jacobi_loops)
 {
+    /*check values*/
+    int logBase2_of_input_blocks = findLog_base2( blocks_side_dim);
+    int check_if_multiple_blocks = find2Pow(logBase2_of_input_blocks);
+    if (check_if_multiple_blocks != blocks_side_dim || logBase2_of_input_blocks < 2 || logBase2_of_input_blocks>5)
+        numBlocks_side = 16;
+    if (in_nu > 1.0e-3)
+        nu = 1.0e-3;
+    if (in_max_jacobi_loops < 2)
+        m_max_jacobi_loops = 2;
+    if (in_max_jacobi_force_loops < 2)
+        m_max_jacobi_force_loops = 2;
+    /**************/
     for(int i=0; i<2; i++){
         m_dev_Ux[i] = nullptr;
         m_dev_Uy[i] = nullptr;

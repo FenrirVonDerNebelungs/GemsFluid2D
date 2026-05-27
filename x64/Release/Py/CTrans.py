@@ -1,0 +1,331 @@
+import os
+from pkgutil import get_data
+import struct
+from threading import setprofile_all_threads
+import numpy as np
+
+#header defs
+#1st 32 bits
+header1 = {
+     0x01 : 'grid',
+     0x02 : 'img',
+     0x03 : 'int_grid' 
+}
+#2nd 32 bits
+header2 = {
+    0x01: 'U',
+    0x02: 'Force',
+    0x03: 'relPos',
+    0x04: 'W',
+    0x05: 'DivW',
+    0x06: 'P',
+    0x07: 'gradP',
+    0x08: 'DivU',
+    0x09: 'LapP',
+    0x0A: 'Dye',
+    0x0B: 'Advect_i',
+    0x0C: 'Advect_d'
+}
+#3rd 32 bits
+header3 = {
+    0x00: 'Scalar',
+    0x01: 'X',
+    0x02: 'Y',
+    0x03: 'X_exp',
+    0x04: 'Y_exp'
+    }
+#4th 32 bits
+header4 = {
+    0x00: 'mid_frame',
+    0x01 : 'start_frame',
+    0x02: 'after_advection',
+    0x03: 'after_force',
+    0x04: 'after_pressure',
+    0x05: 'end_frame',
+    0x06: 'jacobi_stack_fill',
+    0x07: 'jacobi_loop',
+    0x08: 'jacobi_frame',
+    0x09: 'jacobi_senddown',
+    0x0A: 'after_jacobi',
+    0x0B: 'after_viscous'
+    }
+
+cache_header = {
+    0x01: 'float',
+    0x02: 'double'
+}
+def getStreamType(header):
+    if np.size(header)<1:
+        return 0
+    return header[0]
+    
+def getGridWidth(header):
+    width = header[6]
+    return int(width)
+
+def getGridHeight(header):
+    height = header[7]
+    return int(height)
+
+def getExpFactor(header):
+    exp_factor = header[8]
+    return int(exp_factor)
+
+def getDataLen(header, float_len=8): # gets data length in bytes from header, assuming doubles
+    if np.size(header)<1:
+        return 0
+    width = getGridWidth(header)
+    height = getGridHeight(header)
+    d_len = width*height
+    return float_len*d_len
+ 
+def getDataLabel(header):
+    if np.size(header)<1:
+        return 0
+    return header[1]
+
+def getDataAxis(header):
+    return header[2]
+
+def getDataStartEndCode(header):
+    return header[3]
+
+def getLoopsRun(header):
+    return header[4]
+
+def getJacobiFrame(header):
+    return header[5]
+
+def getExpansionFactor( header):
+    return header[8]
+
+def getJacobiStackI(header):
+    return header[8]
+
+#file header
+def getCacheHeaderLenFromFileHeader(header): #returns cache header len in bytes
+    return int(header[1])
+
+def getNumberOfCaches(header):
+    return int(header[3])
+
+#cache header
+def getStreamHeaderLen(header): #getst stream header len in bytes from cache header
+    return int(header[1])
+
+def getNumberHeadersPerCache(header):
+    return int(header[2])
+
+def getCacheSizeInBytes(header): #size of cache after header
+    return int(header[6])
+
+def getDataTypeCode(header):
+    raw_type_code = int(header[5])
+    return cache_header[raw_type_code]
+
+
+def Cti(ch4):
+    I = int.from_bytes(ch4, "little")
+    return I
+
+def Ctl(ch8):
+    Long_I = int.from_bytes(ch8, "little")
+    return Long_I
+
+def Ctd(ch8):
+    double_val = struct.unpack('<d',ch8) #unpack with little-endian ch[7] is the largest value
+    return double_val[0]
+
+def Ctf(ch4):
+    float_val =struct.unpack('<f',ch4) 
+    return float_val
+
+def streamCtoI(len_stream_in, byte_stream_in, stream_in_offset=0):
+    ch4 = bytearray(4)
+    stream_out_len = int(len_stream_in/4)
+    check_len_byte_stream_in = len(byte_stream_in)
+    if stream_out_len<1 or (len_stream_in+stream_in_offset)>check_len_byte_stream_in:
+        return np.empty(shape=(0,), dtype=np.int32)
+    I_stream_out = np.zeros(stream_out_len, dtype=np.int32)
+    stream_out_i=0
+    for i in range (0, len_stream_in, 4):
+        stream_i = stream_in_offset+i
+        for ch4_i in range(0,4):
+            ch4[ch4_i]=byte_stream_in[stream_i+ch4_i]
+        I = Cti(ch4)
+        if abs(I) < 0x7fffffff:
+            I_stream_out[stream_out_i]=I
+        stream_out_i+=1
+    return I_stream_out
+
+def streamCtoL(len_stream_in, byte_stream_in, stream_in_offset=0):  #chars are bytes
+    ch8 = bytearray(8)
+    stream_out_len = len_stream_in/8
+    if (stream_out_len<1):
+        return np.empty(shape=(0,), dtype=np.int64)
+    L_stream_out = np.zeros(stream_out_len, dtype=np.int64)
+    stream_out_i=0
+    for i in range(0, len_stream_in, 8):
+        stream_i=stream_in_offset+i
+        for ch8_i in range(0,8):
+            ch8[ch8_i]=byte_stream_in[stream_i+ch8_i]
+            L_out = Ctl(ch8)
+            L_stream_out[stream_out_i]=L_out
+            stream_out_i+=1
+    return L_stream_out
+
+def streamCtoD(len_stream_in, byte_stream_in, stream_in_offset):
+    ch8=bytearray(8)
+    stream_out_len = int(len_stream_in/8)
+    if stream_out_len<1:
+        return np.empty(shape=(0,), dtype=np.float64)
+    D_stream_out = np.zeros(stream_out_len, dtype=np.float64)
+    stream_out_i = 0
+    for i in range(0, len_stream_in, 8):
+        stream_i = stream_in_offset+i
+        for ch8_i in range(0,8):
+            ch8[ch8_i] = byte_stream_in[stream_i+ch8_i]
+        D_out = Ctd(ch8)
+        D_stream_out[stream_out_i] = D_out
+        stream_out_i+=1
+    return D_stream_out
+
+def streamCtoF(len_stream_in, byte_stream_in, stream_in_offset):
+    ch4=bytearray(4)
+    stream_out_len = int(len_stream_in/4)
+    if stream_out_len<1:
+        return np.empty(shape=(0,), dtype=np.float32)
+    stream_out = np.zeros(stream_out_len, dtype=np.float32)
+    stream_out_i = 0
+    for i in range(0, len_stream_in, 4):
+        stream_i = stream_in_offset+i
+        for ch4_i in range(0,4):
+            ch4[ch4_i] = byte_stream_in[stream_i+ch4_i]
+        F_out = Ctf(ch4)
+        stream_out[stream_out_i] = F_out
+        stream_out_i+=1
+    return stream_out
+
+class CTrans:
+    
+    def __init__(self, filename): #frameSize in bytes
+        self.filename = filename
+        self.file_header_len=0
+        self.file_len_bytes=0
+        file_header_stream = self.readFileHeader(filename) #sets file_header_len and file_len_bytes
+        self.file_offset = self.file_header_len
+        file_header = streamCtoI(self.file_header_len,file_header_stream)
+        self.cache_header_len= getCacheHeaderLenFromFileHeader(file_header) #len in byte
+        self.cache_header_len_I = self.cache_header_len/4 #len in int32
+        self.num_caches_read=0
+        self.cache_data_type = ''
+        self.header_len=0 #stream header len
+        self.num_frame_headers = 0
+        self.frameSize = 0
+        self.frameStream = []
+        self.grid_wh=0
+
+    def readBinaryFile(self, start_offset): #read cache
+        if start_offset>=self.file_len_bytes:
+            return False
+        retVal=True
+        try:
+            with open(self.filename, 'rb') as f_in:
+                f_in.seek(start_offset)
+                cache_header_stream = f_in.read(self.cache_header_len)
+                if len(cache_header_stream)<self.cache_header_len:
+                    return False
+                cache_header = streamCtoI(self.cache_header_len,cache_header_stream)
+                self.header_len = getStreamHeaderLen(cache_header)
+                self.num_frame_headers = getNumberHeadersPerCache(cache_header)
+                self.frameSize = getCacheSizeInBytes(cache_header)
+                
+                self.frameStream = f_in.read(self.frameSize)
+                if len(self.frameStream)<self.frameSize:
+                    print(f"Error: frame stream not  found after cache header")
+                    return False
+                self.cache_data_type = getDataTypeCode(cache_header)
+                self.num_caches_read +=1
+        except FileNotFoundError:
+            print(f"Error: could not find file")
+            retVal=False
+        except Exception as e:
+            print(f"Error while reading file: {e}")
+            retVal=False
+        return retVal
+
+    def readFileHeader(self, filename):
+        header_stream = []
+        try:
+            with open(filename, 'rb') as f_in:
+                f_in.seek(0,os.SEEK_END)
+                self.file_len_bytes = f_in.tell()
+                if(self.file_len_bytes>1):
+                    f_in.seek(0)
+                    header_stream_1st = f_in.read(4)
+                    len_of_header = streamCtoI(4,header_stream_1st)
+                    self.file_header_len=int(len_of_header[0])
+                    f_in.seek(0)
+                    header_stream = f_in.read(self.file_header_len)
+        except FileNotFoundError:
+            print(f"Error: could not find file")
+            retVal=False
+        except Exception as e:
+            print(f"Error while reading file: {e}")
+            retVal=False
+        return header_stream
+    
+    def readHeader(self, stream_in, stream_offset):
+        header_Is = streamCtoI(self.header_len, stream_in, stream_offset)
+        return header_Is
+
+    def readGridStream(self, stream_in, stream_offset):
+        header = self.readHeader(stream_in, stream_offset)
+        data = []
+        data_len=0
+        stream_len=0
+        stream_type = header1[getStreamType(header)]
+        if stream_type=='grid':
+            if self.cache_data_type=='double':
+                data_len = getDataLen(header,8)
+                data = streamCtoD(data_len, stream_in, stream_offset+self.header_len)
+            elif self.cache_data_type == 'float':
+                data_len = getDataLen(header,4)
+                data = streamCtoF(data_len, stream_in, stream_offset+self.header_len)
+        elif stream_type == 'int_grid':
+            data_len = getDataLen(header,4)
+            data = streamCtoI(data_len,stream_in,stream_offset+self.header_len)
+        stream_len = data_len+self.header_len
+        return header, data, stream_len
+
+    def readDStream(self, stream_in, stream_len, stream_offset):
+        char_stream_len = 8*stream_len
+        data = streamCtoD(char_stream_len, stream_in, stream_offset)
+        return data
+
+    def readFrameStream(self):
+        stream_offset=0
+        header_stack=[]
+        data_stack=[]
+        for header_cnt in range(self.num_frame_headers):
+            header, data, stream_len = self.readGridStream(self.frameStream, stream_offset)
+            header_stack.append(header)
+            data_stack.append(data)
+            stream_offset+=stream_len
+        return header_stack, data_stack, stream_offset
+
+    def readFrame(self):
+        if not self.readBinaryFile(self.file_offset):
+            return [], [], 0
+        new_file_offset = self.file_offset + self.cache_header_len
+        header_stack, data_stack, stream_offset = self.readFrameStream()
+        new_file_offset += stream_offset
+        self.file_offset = new_file_offset
+        return header_stack, data_stack, new_file_offset
+
+    def readDdat(self, len_in, file_offset):
+        if not self.readBinaryFile(file_offset):
+            return [], 0
+        dat = self.readDStream(self.frameStream, len_in, file_offset)
+        new_file_offset=file_offset+len_in
+        return dat, new_file_offset

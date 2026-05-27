@@ -8,15 +8,36 @@
 #include "Test/Test.h"
 
 #define MAX_LOADSTRING 100
+#define G_ID_SIZE 1001
+#define G_ID_SIM_FREE_RUN 1002
+#define G_ID_CUDA_LOOPS 1003
+#define G_ID_VISC 1004
+#define G_ID_JAC_LOOPS 1005
+#define G_ID_JAC_F_LOOPS 1006
+#define G_ID_RUN_BUTTON 103
 
 // Global Variables:
 HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 HWND g_fluid_hWnd;
+HWND g_setup_L1_hWnd;/*size*/
+HWND g_setup_1_hWnd;
+HWND g_setup_L2_hWnd;/*sim free run loops*/
+HWND g_setup_2_hWnd;
+HWND g_setup_L3_hWnd;/*internal cuda cycles*/
+HWND g_setup_3_hWnd;
+HWND g_setup_L4_hWnd;/*viscosity exponent*/
+HWND g_setup_4_hWnd;
+HWND g_setup_L5_hWnd;/*jacobi loops*/
+HWND g_setup_5_hWnd;
+HWND g_setup_L6_hWnd; /*jacobi force loops*/
+HWND g_setup_6_hWnd;
+HWND g_setup_button_hWnd;
 GenImage* g_pGenImage = nullptr; //class used to draw images
 Fluid2D* g_pFluid2D = nullptr; //class used to run the fluid simulation
 Test* g_pTest = nullptr; //class used to run the fluid simulation
+bool g_state_run = false;
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -58,9 +79,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        if (g_pFluid2D->runSim()) {
-            InvalidateRect(g_fluid_hWnd, nullptr, TRUE);
-            g_pGenImage = g_pFluid2D->getCurrentImage();
+        if (g_state_run) {
+            if (g_pFluid2D->runSim()) {
+                InvalidateRect(g_fluid_hWnd, nullptr, TRUE);
+                g_pGenImage = g_pFluid2D->getCurrentImage();
+            }
         }
     }
 
@@ -108,8 +131,8 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-	g_pFluid2D = new Fluid2D();
-	s_WH grid_wh = g_pFluid2D->getGridWidthHeight();
+	/*g_pFluid2D = new Fluid2D();
+	s_WH grid_wh = g_pFluid2D->getGridWidthHeight();*/
 	//g_pFluid2D->applyForce();
 	//g_pFluid2D->initFileOutput();
 	//g_pFluid2D->launchCUDA();
@@ -123,8 +146,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     //g_pGenImage = g_pFluid2D->getCurrentImage();
    hInst = hInstance; // Store instance handle in our global variable
    //s_WH blown_grid_wh = g_pTest->getBlownWidthHeight();
-   int window_width = grid_wh.width + 100;//blown_grid_wh.width + 6;
-   int window_height = grid_wh.height + 100;//blown_grid_wh.height + 6;
+   int window_width = 512+100;//grid_wh.width + 100;//blown_grid_wh.width + 6;
+   int window_height = 512+100;//grid_wh.height + 100;//blown_grid_wh.height + 6;
    g_fluid_hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT, 0, window_width, window_height, nullptr, nullptr, hInstance, nullptr);//CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
@@ -132,10 +155,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    {
       return FALSE;
    }
+   g_setup_L1_hWnd = CreateWindowW(L"Static", L"Size 1 to 5 ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 40, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_1_hWnd=CreateWindowW(L"Edit", L"4", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 40, 200, 25, g_fluid_hWnd, (HMENU)G_ID_SIZE, nullptr, nullptr);
+   g_setup_L2_hWnd = CreateWindowW(L"Static", L"Sim Free Run ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 80, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_2_hWnd = CreateWindowW(L"Edit", L"9", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 80, 200, 25, g_fluid_hWnd, (HMENU)G_ID_SIM_FREE_RUN, nullptr, nullptr);
+   g_setup_L3_hWnd = CreateWindowW(L"Static", L"CUDA loops ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 120, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_3_hWnd = CreateWindowW(L"Edit", L"12", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 120, 200, 25, g_fluid_hWnd, (HMENU)G_ID_CUDA_LOOPS, nullptr, nullptr);
+   g_setup_L4_hWnd = CreateWindowW(L"Static", L"Viscosity e- ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 160, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_4_hWnd = CreateWindowW(L"Edit", L"5", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 160, 200, 25, g_fluid_hWnd, (HMENU)G_ID_VISC, nullptr, nullptr);
+   g_setup_L5_hWnd = CreateWindowW(L"Static", L"Jacobi Loops ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 200, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_5_hWnd = CreateWindowW(L"Edit", L"24", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 200, 200, 25, g_fluid_hWnd, (HMENU)G_ID_JAC_LOOPS, nullptr, nullptr);
+   g_setup_L6_hWnd = CreateWindowW(L"Static", L"Jacobi F Loops ", WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 240, 200, 25, g_fluid_hWnd, nullptr, nullptr, nullptr);
+   g_setup_6_hWnd = CreateWindowW(L"Edit", L"64", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 210, 240, 200, 25, g_fluid_hWnd, (HMENU)G_ID_JAC_F_LOOPS, nullptr, nullptr);
+   g_setup_button_hWnd = CreateWindowW(L"Button", L"Run", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, 40, 380, 230, 30, g_fluid_hWnd, (HMENU)G_ID_RUN_BUTTON, nullptr, nullptr);
+   if (!g_setup_L1_hWnd || !g_setup_1_hWnd || !g_setup_button_hWnd)
+       return FALSE;
 
    ShowWindow(g_fluid_hWnd, nCmdShow);
    UpdateWindow(g_fluid_hWnd);
-
 
    return TRUE;
 }
@@ -146,9 +183,10 @@ VOID Release()
         delete g_pTest;
         g_pTest = nullptr;
     }*/
-    g_pFluid2D->releaseFileOutput();
+
     if(g_pFluid2D != nullptr)
     {
+        g_pFluid2D->releaseFileOutput();
         delete g_pFluid2D;
         g_pFluid2D = nullptr;
 	}
@@ -183,14 +221,91 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             case IDM_EXIT:
                 DestroyWindow(hWnd);
                 break;
+            case G_ID_RUN_BUTTON:
+            {
+                wchar_t buffer1[256], buffer2[256], buffer3[256], buffer4[256], buffer5[256], buffer6[256];
+                GetWindowTextW(g_setup_1_hWnd, buffer1, 256);
+                GetWindowTextW(g_setup_2_hWnd, buffer2, 256);
+                GetWindowTextW(g_setup_3_hWnd, buffer3, 256);
+                GetWindowTextW(g_setup_4_hWnd, buffer4, 256);
+                GetWindowTextW(g_setup_5_hWnd, buffer5, 256);
+                GetWindowTextW(g_setup_6_hWnd, buffer6, 256);
+                int val1 = _wtoi(buffer1);
+                int sim_frames = _wtoi(buffer2);
+                int cuda_loops = _wtoi(buffer3);
+                int visc_exp = _wtoi(buffer4);
+                int jac_loops = _wtoi(buffer5);
+                int jac_force_loops = _wtoi(buffer6);
+                int block_size = 1;
+                int pow_size_cnt = 0;
+                do {
+                    block_size *= 2;
+                    pow_size_cnt++;
+                } while (block_size < 32 && pow_size_cnt < val1);
+                double viscosity_nu = 1.0e-5;
+                if (visc_exp <= 3)
+                    viscosity_nu = 1.0e-3;
+                else if (visc_exp == 4)
+                    viscosity_nu = 1.0e-4;
+                else if (visc_exp >= 6)
+                    viscosity_nu = 1.0e-6;
+                g_pFluid2D = new Fluid2D(
+                    60,/*mouse max delta*/
+                    5, /*mouse min delta*/
+                    sim_frames,
+                    cuda_loops,
+                    6,/*max force frame duration */
+                    3,/*force decay frames*/
+                    0.1,/*force decay factor */
+                    300.0,/*max allowed force*/
+                    3,/*max dye frames duration*/
+                    1.0e-3,/*delta_t*/
+                    1.0e-3,/*delta_x*/
+                    viscosity_nu,
+                    block_size,/* num blocks */
+                    16, /* num threads */
+                    2, /* jacobi min blocks side dim*/
+                    4, /* jacobi min threads side dim*/
+                    jac_loops, /* number of jacobi loops per plate in stack */
+                    jac_force_loops); /* number of jacobi loops '           ' when force is present */
+                g_state_run = true;
+                if (g_setup_1_hWnd != nullptr 
+                    && g_setup_L1_hWnd != nullptr
+                    && g_setup_L2_hWnd!= nullptr
+                    && g_setup_2_hWnd!=nullptr
+                    && g_setup_L3_hWnd != nullptr
+                    && g_setup_3_hWnd != nullptr
+                    && g_setup_L4_hWnd != nullptr
+                    && g_setup_4_hWnd != nullptr
+                    && g_setup_L5_hWnd != nullptr
+                    && g_setup_5_hWnd != nullptr
+                    && g_setup_L6_hWnd != nullptr
+                    && g_setup_6_hWnd != nullptr
+                    && g_setup_button_hWnd != nullptr) {
+                    DestroyWindow(g_setup_L1_hWnd);
+                    DestroyWindow(g_setup_1_hWnd);
+                    DestroyWindow(g_setup_L2_hWnd);
+                    DestroyWindow(g_setup_2_hWnd);
+                    DestroyWindow(g_setup_L3_hWnd);
+                    DestroyWindow(g_setup_3_hWnd);
+                    DestroyWindow(g_setup_L4_hWnd);
+                    DestroyWindow(g_setup_4_hWnd);
+                    DestroyWindow(g_setup_L5_hWnd);
+                    DestroyWindow(g_setup_5_hWnd);
+                    DestroyWindow(g_setup_L6_hWnd);
+                    DestroyWindow(g_setup_6_hWnd);
+                    DestroyWindow(g_setup_button_hWnd);
+                    break;
+                }
+            }
             default:
                 return DefWindowProc(hWnd, message, wParam, lParam);
-            }
+            }                
         }
         break;
     case WM_PAINT:
         {
-        if (g_pGenImage != nullptr) {
+        if (g_pGenImage != nullptr && g_state_run) {
             PAINTSTRUCT ps;
             BITMAPINFO* bmi = g_pGenImage->getBitmapInfo();
             s_WH wh = g_pGenImage->getWidthHeight();
@@ -231,7 +346,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONUP: {
 		int x_release = LOWORD(lParam);
         int y_release = HIWORD(lParam);
-        g_pFluid2D->handleMouseSweep(x_release, y_release, last_mouse_button_down_x, last_mouse_button_down_y);
+        if(g_state_run)
+           g_pFluid2D->handleMouseSweep(x_release, y_release, last_mouse_button_down_x, last_mouse_button_down_y);
 		last_mouse_button_down_x = -1;
 		last_mouse_button_down_y = -1;
         //MessageBox(hWnd, L"Left mouse button released", L"Mouse Click", MB_OK);
@@ -241,14 +357,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam)
         {
             case VK_SPACE:
-                g_pFluid2D->advanceSim();
+                if(g_state_run)
+                    g_pFluid2D->advanceSim();
                 break;
             case VK_ESCAPE:
-                g_pFluid2D->resetSim();
+                if(g_state_run)
+                    g_pFluid2D->resetSim();
                 break;
             case VK_OEM_PLUS:
-                g_pFluid2D->toggleAddDyeWithForce();
+                if(g_state_run)
+                    g_pFluid2D->toggleAddDyeWithForce();
                 break;
+            case VK_OEM_MINUS:
+                if (g_state_run)
+                    g_pFluid2D->toggleAddDyeWithoutForce();
         }
         break;
     }
@@ -257,21 +379,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam)
         {
         case 'p':
-            {
+            if(g_state_run){
                 g_pFluid2D->setDisplayP();
                 g_pGenImage = g_pFluid2D->getCurrentImage();
                 InvalidateRect(hWnd, nullptr, TRUE);
                 break;
             }
             case 'd': 
-            {
+            if(g_state_run){
                 g_pFluid2D->setDisplayDye();
                 g_pGenImage = g_pFluid2D->getCurrentImage();
                 InvalidateRect(hWnd, nullptr, TRUE);
                 break;
             }
             case 's':
-            {
+            if(g_state_run){
                  g_pFluid2D->toggleSlidingWallActive();
                 if (g_pFluid2D->slidingWallActive())
                     MessageBox(hWnd, L"activating sliding wall", L"State", MB_OK);
@@ -280,7 +402,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 break;
             }
             case 'w':
-            {
+            if(g_state_run){
                 if (g_pFluid2D->initFileOutput())
                     MessageBox(hWnd, L"Dumping output to disk", L"File Out", MB_OK);
                 else

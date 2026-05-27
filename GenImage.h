@@ -8,7 +8,8 @@
 
 enum ColorBarType {
 	Rainbow,
-	SepiaGlow
+	SepiaGlow,
+	Gem
 };
 struct s_rgb {
 	unsigned char c[3];
@@ -33,9 +34,11 @@ private:
 
 	s_rgb interpolateColor(s_rgb color1, s_rgb color2, double t);/*t is between 0 and 1*/
 	void renderColorBar();/*renders the color bar to m_color_bar for fast lookup*/
+	void reverseColorBar();/*reverses r<->b for color bar*/
 
 	void setRainbowColorBar();
 	void setSepiaGlowColorBar();
+	void setGemColorBar();
 	void computeHSVfromRGB(const s_rgb& rgb, double& h, double& s, double& v);
 	void computeRGBfromHSV(double h, double s, double v, s_rgb& rgb);
 };

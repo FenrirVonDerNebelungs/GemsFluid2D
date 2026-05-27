@@ -8,6 +8,9 @@ ColorBar::ColorBar(ColorBarType type, bool is_centered) : m_is_centered(is_cente
 	case SepiaGlow:
 		setSepiaGlowColorBar();
 		break;
+	case Gem:
+		setGemColorBar();
+		break;
 	default:
 		setRainbowColorBar();
 		break;
@@ -59,6 +62,14 @@ void ColorBar::renderColorBar() {
 		m_color_bar[i] = getInterpolatedColor(t_raw);
 	}
 }
+void ColorBar::reverseColorBar() {
+	for (int i = 0; i < 256; i++) {
+		char c0 = m_color_bar[i].c[0];
+		char c2 = m_color_bar[i].c[2];
+		m_color_bar[i].c[0] = c2;
+		m_color_bar[i].c[2] = c0;
+	}
+}
 void ColorBar::setRainbowColorBar() {
 	m_color_marks[0] = { 200,0,0 };//{ 255, 0, 0 }; // Red
 	m_color_marks[1] = { 255, 100,0 };//{ 255, 127, 0 }; // Orange
@@ -79,7 +90,7 @@ void ColorBar::setSepiaGlowColorBar() {
 	m_color_marks[4] = { 255,228,196 };//{ 255, 228, 196 }; // Bisque
 	m_color_marks[3] = { 200, 192, 185 };//{ 255, 218, 185 }; // Peach Puff
 	m_color_marks[2] = { 130, 120, 110 };//{ 255, 160, 122 }; // Light Salmon
-	m_color_marks[1] = { 95, 100, 105 };//{ 255, 127, 80 }; // Coral
+	m_color_marks[1] = {95, 100, 105 };//{ 255, 127, 80 }; // Coral
 	m_color_marks[0] = { 0, 10, 30 };//{ 139, 69, 19 }; // Saddle Brown
 	m_mark_positions[0] = 0.0;
 	m_mark_positions[1] = 0.2;
@@ -90,6 +101,24 @@ void ColorBar::setSepiaGlowColorBar() {
 	m_num_color_marks = 6;
 	m_center_mark_index = 0;
 	renderColorBar();
+}
+void ColorBar::setGemColorBar() {
+	m_color_marks[5] = { 215,210,225 };//{ 255, 255, 224 }; // Light Yellow
+	m_color_marks[4] = { 155,121,225 };//{ 255, 228, 196 }; // Bisque
+	m_color_marks[3] = { 100, 90, 200 };//{ 255, 218, 185 }; // Peach Puff
+	m_color_marks[2] = { 100, 46, 137};//{ 255, 160, 122 }; // Light Salmon
+	m_color_marks[1] = { 76, 6, 86 };//{ 126, 39, 60 }; // Coral
+	m_color_marks[0] = { 0, 0, 0 };//{ 139, 69, 19 }; // Saddle Brown
+	m_mark_positions[0] = 0.0;
+	m_mark_positions[1] = 0.2;
+	m_mark_positions[2] = 0.4;
+	m_mark_positions[3] = 0.6;
+	m_mark_positions[4] = 0.8;
+	m_mark_positions[5] = 1.0;
+	m_num_color_marks = 6;
+	m_center_mark_index = 0;
+	renderColorBar();
+	reverseColorBar();
 }
 void ColorBar::computeHSVfromRGB(const s_rgb& rgb, double& h, double& s, double& v) {
 	double r = static_cast<double>(rgb.c[0]) / 255.0;

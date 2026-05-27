@@ -35,7 +35,8 @@ public:
 		int jacobi_minThreads_side_dim = 4,
 		int in_max_jacobi_loops=24,
 		int in_max_jacobi_force_loops=64,
-		int filter_sigma = 1.0
+		int filter_sigma = 1.0,
+		double dye_intensity=0.1
 	);
 	~Fluid2D();
 
@@ -49,6 +50,7 @@ public:
 	void setDisplayDye() { m_draw_dye = true; }
 	void setDisplayP() { m_draw_dye = false; }
 	void toggleAddDyeWithForce() { m_add_dye_with_force = !m_add_dye_with_force; }
+	void toggleAddDyeWithoutForce() { m_add_dye_without_force = !m_add_dye_without_force; }
 
 	GenImage* getCurrentImage() { return m_draw_dye ? getCurrentImage_dye() : getCurrentImage_p(); }
 	GenImage* getCurrentImage_p() { return (m_images_p != nullptr && m_sim_cnt>0) ? m_images_p[m_sim_cnt-1] : nullptr; }
@@ -78,8 +80,10 @@ private:
 	double* m_dye;
 	double m_mouse_max_delta;
 	double m_mouse_min_delta;
+	double m_dye_intensity;
 	bool m_draw_dye;
 	bool m_add_dye_with_force;
+	bool m_add_dye_without_force;
 	int m_sim_frames;
 	int m_num_sims;
 	int m_grid_width;
